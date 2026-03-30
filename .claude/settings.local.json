@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/lmmi/legal_word_drift -name .* -o -name requirements* -o -name *.txt -o -name *.md -o -name *.json -o -name *.yaml -o -name *.yml)",
+      "Bash(grep -v \"^\\\\.$\")",
+      "Bash(grep -v \"^\\\\.\\\\.$\")",
+      "Bash(grep -r \"import\\\\|from\" /Users/lmmi/legal_word_drift/src/*.py)",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -c \"\nfrom src.models import ParagraphRecord\nfrom src.xhtml_parser import parse_xhtml\nfrom src.text_fetcher import fetch_texts\nfrom src.utils.io import load_existing_ids, append_jsonl, read_jsonl\nfrom src.utils.config import PROJECT_ROOT\nfrom src.preprocessing.legal_tokenizer import preprocess_paragraph\nfrom src.preprocessing.phrase_detector import PhraseDetector\nfrom src.preprocessing.corpus_builder import build_sentences_for_year\nfrom src.embeddings.trainer import W2VConfig, train_sliding_windows, train_single_years\nfrom src.embeddings.alignment import align_pair, apply_rotation, align_to_reference\nfrom src.embeddings.vocabulary import build_v_global, build_v_analysis, build_v_anchor\nfrom src.metrics.shift import cosine_shift, jaccard_shift, compute_all_shifts\nfrom src.metrics.dispersion import knn_dispersion, neighborhood_density, compute_all_dispersion\nfrom src.metrics.clustering import domain_coherence, compute_all_domain_coherence, LEGAL_DOMAINS\nfrom src.stats.bootstrap import bootstrap_metric\nfrom src.visualization.embedding_plots import stack_embeddings, reduce_pca, plot_trajectories\nprint\\('All imports OK'\\)\nprint\\(f'Legal domains: {list\\(LEGAL_DOMAINS.keys\\(\\)\\)}'\\)\n\")",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.01_fetch_metadata --start 2000 --end 2005)",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -c \"\nfrom src.pipeline.01_fetch_metadata import fetch_subjects\nimport pandas as pd\nindex = pd.read_parquet\\('data/raw/metadata/index.parquet'\\)\nprint\\(f'Index: {len\\(index\\)} decisions'\\)\nfetch_subjects\\(index\\)\n\")",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -c \"\nimport importlib\nmod = importlib.import_module\\('src.pipeline.01_fetch_metadata'\\)\nimport pandas as pd\nindex = pd.read_parquet\\('data/raw/metadata/index.parquet'\\)\nprint\\(f'Index: {len\\(index\\)} decisions'\\)\nmod.fetch_subjects\\(index\\)\n\")",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.02_fetch_texts --year 2000 --concurrency 10)",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.02_fetch_texts --concurrency 10 2>&1)",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.03_preprocess --start 2000 --end 2005 2>&1)",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.04_detect_phrases --start 2000 --end 2005 2>&1)",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.05_train_embeddings --start 2000 --end 2005 --single-year --window-size 3 2>&1)"
+    ]
+  }
+}
