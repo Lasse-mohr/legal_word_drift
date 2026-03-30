@@ -1,6 +1,9 @@
 # Data (too large for git -- reconstruct via pipeline)
 data/
 
+# Logs
+logs/
+
 # Python
 __pycache__/
 *.py[cod]

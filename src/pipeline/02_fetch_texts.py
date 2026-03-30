@@ -18,12 +18,9 @@ import os
 import pandas as pd
 
 from src.text_fetcher import fetch_texts_async
-from src.utils.config import RAW_METADATA_DIR, PARAGRAPHS_DIR
+from src.utils.config import RAW_METADATA_DIR, PARAGRAPHS_DIR, setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+setup_logging("02_fetch_texts")
 logger = logging.getLogger(__name__)
 
 

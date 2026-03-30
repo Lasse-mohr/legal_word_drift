@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import os
+from datetime import datetime
 
 # Project root: two levels up from this file (src/utils/config.py -> project root)
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -33,3 +35,26 @@ FIGURES_DIR = os.path.join(RESULTS_DIR, "figures")
 
 # Default output for text fetcher
 RAW_TEXTS_DIR = os.path.join(RAW_DIR, "texts")
+
+# Logs
+LOGS_DIR = os.path.join(PROJECT_ROOT, "logs")
+
+
+def setup_logging(script_name: str) -> None:
+    """Configure logging to both console and a timestamped log file.
+
+    Log files are written to logs/{YYYY-MM-DD}_{script_name}.log
+    """
+    os.makedirs(LOGS_DIR, exist_ok=True)
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    log_path = os.path.join(LOGS_DIR, f"{date_str}_{script_name}.log")
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler(log_path),
+        ],
+    )
+    logging.getLogger(__name__).info(f"Logging to {log_path}")

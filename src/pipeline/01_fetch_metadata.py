@@ -16,12 +16,9 @@ import os
 import pandas as pd
 
 from src.cjeu_cellar_client import CjeuCellarClient, DOC_TYPE_JUDGMENTS
-from src.utils.config import RAW_METADATA_DIR
+from src.utils.config import RAW_METADATA_DIR, setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+setup_logging("01_fetch_metadata")
 logger = logging.getLogger(__name__)
 
 

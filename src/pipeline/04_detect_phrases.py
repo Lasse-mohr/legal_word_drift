@@ -14,12 +14,9 @@ import logging
 import os
 from src.preprocessing.phrase_detector import PhraseDetector
 from src.preprocessing.corpus_builder import build_sentences_for_year
-from src.utils.config import SENTENCES_DIR, PARAGRAPHS_DIR, VOCAB_DIR
+from src.utils.config import SENTENCES_DIR, PARAGRAPHS_DIR, VOCAB_DIR, setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+setup_logging("04_detect_phrases")
 logger = logging.getLogger(__name__)
 
 PHRASE_MODEL_DIR = os.path.join(VOCAB_DIR, "phrases")

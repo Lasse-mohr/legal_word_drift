@@ -14,12 +14,9 @@ import logging
 import os
 
 from src.embeddings.trainer import W2VConfig, train_sliding_windows, train_single_years
-from src.utils.config import SENTENCES_DIR, W2V_MODELS_DIR
+from src.utils.config import SENTENCES_DIR, W2V_MODELS_DIR, setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+setup_logging("05_train_embeddings")
 logger = logging.getLogger(__name__)
 
 

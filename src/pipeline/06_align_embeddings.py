@@ -22,12 +22,9 @@ from src.embeddings.vocabulary import (
     build_v_anchor,
     save_vocab,
 )
-from src.utils.config import W2V_MODELS_DIR, ALIGNED_DIR, VOCAB_DIR
+from src.utils.config import W2V_MODELS_DIR, ALIGNED_DIR, VOCAB_DIR, setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+setup_logging("06_align_embeddings")
 logger = logging.getLogger(__name__)
 
 

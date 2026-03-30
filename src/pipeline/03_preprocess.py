@@ -16,12 +16,9 @@ import os
 
 from src.preprocessing.corpus_builder import build_sentences_for_year
 from src.preprocessing.phrase_detector import PhraseDetector
-from src.utils.config import PARAGRAPHS_DIR, SENTENCES_DIR, VOCAB_DIR
+from src.utils.config import PARAGRAPHS_DIR, SENTENCES_DIR, VOCAB_DIR, setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+setup_logging("03_preprocess")
 logger = logging.getLogger(__name__)
 
 

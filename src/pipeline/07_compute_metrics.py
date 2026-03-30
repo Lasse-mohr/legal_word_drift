@@ -20,12 +20,9 @@ from src.embeddings.vocabulary import load_vocab
 from src.metrics.shift import compute_all_shifts
 from src.metrics.dispersion import compute_all_dispersion
 from src.metrics.clustering import compute_all_domain_coherence
-from src.utils.config import ALIGNED_DIR, VOCAB_DIR, METRICS_DIR
+from src.utils.config import ALIGNED_DIR, VOCAB_DIR, METRICS_DIR, setup_logging
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
-)
+setup_logging("07_compute_metrics")
 logger = logging.getLogger(__name__)
 
 
