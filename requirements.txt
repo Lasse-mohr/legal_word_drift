@@ -75,7 +75,6 @@ notebook_shim==0.2.4
 numba==0.64.0
 numpy==2.4.3
 overrides==7.7.0
-packaging @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_packaging_1769093650/work
 pandas==3.0.1
 pandocfilters==1.5.1
 parso==0.8.6
