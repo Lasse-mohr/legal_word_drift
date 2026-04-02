@@ -41,6 +41,7 @@ def main():
     parser.add_argument("--end", type=int, default=2025, help="End year")
     parser.add_argument("--min-count", type=int, default=30, help="Phrase min count")
     parser.add_argument("--threshold", type=float, default=10.0, help="Phrase threshold")
+    parser.add_argument("--max-phrase-len", type=int, default=3, help="Max words per phrase (2=bigrams only, 3=up to trigrams)")
     args = parser.parse_args()
 
     # Step 1: Train phrase model on existing sentence files
@@ -52,6 +53,7 @@ def main():
         sentences,
         min_count=args.min_count,
         threshold=args.threshold,
+        max_phrase_len=args.max_phrase_len,
     )
     detector.save(PHRASE_MODEL_DIR)
     logger.info(f"  Phrase model saved to {PHRASE_MODEL_DIR}")

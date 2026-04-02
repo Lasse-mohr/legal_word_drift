@@ -32,6 +32,7 @@ class PhraseDetector:
         min_count: int = 30,
         threshold: float = 10.0,
         connector_words: frozenset[str] = ENGLISH_CONNECTOR_WORDS,
+        max_phrase_len: int = 3,
     ) -> PhraseDetector:
         """Train bigram and trigram phrase models.
 
@@ -41,6 +42,8 @@ class PhraseDetector:
             threshold: Scoring threshold (higher = fewer phrases).
             connector_words: Words allowed in the middle of phrases (e.g., "of" in
                            "free movement of goods" -> "free_movement_of_goods").
+            max_phrase_len: Maximum number of words in a phrase. 2 = bigrams only,
+                          3 = up to trigrams (default).
         """
         # First pass: bigrams
         bigram = Phrases(
@@ -50,19 +53,21 @@ class PhraseDetector:
             connector_words=connector_words,
         )
 
-        # Second pass: trigrams (bigrams applied to sentences, then detect new bigrams on top)
-        frozen_bigram = bigram.freeze()
+        trigram = None
+        if max_phrase_len >= 3:
+            # Second pass: trigrams (bigrams applied to sentences, then detect new bigrams on top)
+            frozen_bigram = bigram.freeze()
 
-        def bigram_sentences():
-            for sent in sentences:
-                yield frozen_bigram[sent]
+            def bigram_sentences():
+                for sent in sentences:
+                    yield frozen_bigram[sent]
 
-        trigram = Phrases(
-            bigram_sentences(),
-            min_count=min_count,
-            threshold=threshold,
-            connector_words=connector_words,
-        )
+            trigram = Phrases(
+                bigram_sentences(),
+                min_count=min_count,
+                threshold=threshold,
+                connector_words=connector_words,
+            )
 
         return cls(bigram, trigram)
 

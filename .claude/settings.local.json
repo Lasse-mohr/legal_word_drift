@@ -13,7 +13,17 @@
       "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.02_fetch_texts --concurrency 10 2>&1)",
       "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.03_preprocess --start 2000 --end 2005 2>&1)",
       "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.04_detect_phrases --start 2000 --end 2005 2>&1)",
-      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.05_train_embeddings --start 2000 --end 2005 --single-year --window-size 3 2>&1)"
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.05_train_embeddings --start 2000 --end 2005 --single-year --window-size 3 2>&1)",
+      "Bash(ls /Users/lmmi/legal_word_drift/data/models/word2vec/windows/*.model)",
+      "Bash(conda run:*)",
+      "Bash(conda info:*)",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -c \"import tol_colors; print\\(dir\\(tol_colors\\)\\); print\\(tol_colors.tol_cset\\('high-contrast'\\)\\); print\\(tol_colors.tol_cset\\('bright'\\)\\); print\\(type\\(tol_colors.tol_cmap\\('YlOrBr'\\)\\)\\)\")",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -c \"\nfrom tol_colors import colorsets, colormaps\nhc = colorsets['high_contrast']\nbr = colorsets['bright']\nprint\\('high_contrast:', hc, type\\(hc\\)\\)\nprint\\('bright:', br, type\\(br\\)\\)\nprint\\('list\\(hc\\):', list\\(hc\\)\\)\nprint\\('list\\(br\\):', list\\(br\\)\\)\ncmap = colormaps['YlOrBr']\nprint\\('cmap:', cmap, type\\(cmap\\)\\)\n\")",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -c \"\nfrom src.visualization.plot_config import apply_plot_style, get_categorical_colors, get_sequential_cmap\napply_plot_style\\(\\)\nprint\\('Colors \\(3\\):', get_categorical_colors\\(3\\)\\)\nprint\\('Colors \\(7\\):', get_categorical_colors\\(7\\)\\)\nprint\\('Colors \\(10\\):', get_categorical_colors\\(10\\)\\)\nprint\\('Cmap:', get_sequential_cmap\\(\\)\\)\nprint\\('plot_config OK'\\)\n\")",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -c \"\nfrom src.visualization.drift_plots import compute_word_trajectory, plot_drift_grid\nprint\\('drift_plots OK'\\)\nfrom src.metrics.frequency import compute_frequency_adjusted_drift\nprint\\('frequency OK'\\)\nfrom src.visualization.embedding_plots import plot_trajectories\nprint\\('embedding_plots OK'\\)\n\")",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.08_visualize 2>&1)",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.07b_frequency_adjusted_drift 2>&1)",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.09_visualize_drift --m 200 --method pca 2>&1)"
     ]
   }
 }

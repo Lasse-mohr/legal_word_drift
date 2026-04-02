@@ -12,9 +12,10 @@ from typing import Optional, Sequence
 
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 from gensim.models import KeyedVectors
 from sklearn.decomposition import PCA
+
+from src.visualization.plot_config import get_categorical_colors
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,8 @@ def plot_trajectories(
 
     # Assign a color to each word
     n_words = len(unique_words)
-    word_colors = {w: cm.tab20(i % 20) for i, w in enumerate(unique_words)}
+    colors = get_categorical_colors(n_words)
+    word_colors = {w: colors[i % len(colors)] for i, w in enumerate(unique_words)}
 
     # Sort time labels for ordering
     all_times = sorted(set(time_labels), key=_time_label_to_float)
@@ -164,8 +166,6 @@ def plot_trajectories(
     ax.set_xlabel(f"{method} 1")
     ax.set_ylabel(f"{method} 2")
     ax.set_title(f"Word trajectories in {method} space ({all_times[0]} to {all_times[-1]})")
-    ax.grid(True, alpha=0.2)
-
     fig.tight_layout()
     if save_path:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
@@ -207,8 +207,6 @@ def plot_snapshot(
     ax.set_xlabel(f"{method} 1")
     ax.set_ylabel(f"{method} 2")
     ax.set_title(f"Embedding snapshot ({method})")
-    ax.grid(True, alpha=0.2)
-
     fig.tight_layout()
     if save_path:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
