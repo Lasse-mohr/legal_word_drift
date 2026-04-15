@@ -28,6 +28,14 @@ MODELS_DIR = os.path.join(DATA_DIR, "models")
 W2V_MODELS_DIR = os.path.join(MODELS_DIR, "word2vec")
 ALIGNED_DIR = os.path.join(MODELS_DIR, "aligned")
 
+# BERT contextualised embeddings
+BERT_DIR = os.path.join(MODELS_DIR, "bert")
+BERT_USAGE_INDEX_DIR = os.path.join(BERT_DIR, "usage_index")
+BERT_SAMPLED_DIR = os.path.join(BERT_DIR, "sampled_usages")
+BERT_EMBEDDINGS_DIR = os.path.join(BERT_DIR, "embeddings")
+BERT_CENTROIDS_PATH = os.path.join(BERT_DIR, "centroids.npz")
+BERT_CROSS_PERIOD_APD_PATH = os.path.join(BERT_DIR, "cross_period_apd.npz")
+
 # Results
 RESULTS_DIR = os.path.join(DATA_DIR, "results")
 METRICS_DIR = os.path.join(RESULTS_DIR, "metrics")

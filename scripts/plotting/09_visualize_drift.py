@@ -54,7 +54,7 @@ def main():
     parser.add_argument("--k-label", type=int, default=3, help="k for labeling nearest neighbors")
     parser.add_argument("--ncols", type=int, default=5, help="Columns in grid plot")
     parser.add_argument("--batch-size", type=int, default=25, help="Words per grid image")
-    parser.add_argument("--method", type=str, default="pca",
+    parser.add_argument("--method", type=str, default="umap",
                         help="Dimensionality reduction method: pca or umap")
     args = parser.parse_args()
 

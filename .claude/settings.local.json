@@ -23,7 +23,18 @@
       "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -c \"\nfrom src.visualization.drift_plots import compute_word_trajectory, plot_drift_grid\nprint\\('drift_plots OK'\\)\nfrom src.metrics.frequency import compute_frequency_adjusted_drift\nprint\\('frequency OK'\\)\nfrom src.visualization.embedding_plots import plot_trajectories\nprint\\('embedding_plots OK'\\)\n\")",
       "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.08_visualize 2>&1)",
       "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.07b_frequency_adjusted_drift 2>&1)",
-      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.09_visualize_drift --m 200 --method pca 2>&1)"
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -m src.pipeline.09_visualize_drift --m 200 --method pca 2>&1)",
+      "Bash(pip install:*)",
+      "WebSearch",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import json, sys; print\\(json.dumps\\(json.load\\(sys.stdin\\), indent=2\\)\\)\")",
+      "WebFetch(domain:aclanthology.org)",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:www.semanticscholar.org)",
+      "Bash(wc -l /Users/lmmi/legal_word_drift/data/processed/paragraphs/*.jsonl)",
+      "Bash(sort -t/ -k8 -n)",
+      "Bash(python3:*)",
+      "Bash(wc -l /Users/lmmi/legal_word_drift/data/processed/sentences/*.txt)"
     ]
   }
 }

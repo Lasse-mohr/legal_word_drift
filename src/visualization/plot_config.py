@@ -12,7 +12,18 @@ from __future__ import annotations
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 from tol_colors import colorsets, colormaps
+
+
+SEQUENTIAL_PALETTES: dict[str, list[str]] = {
+    "greens": ["#edf8e9", "#c7e9c0", "#a1d99b", "#74c476",
+               "#41ab5d", "#238b45", "#005a32"],
+    "orange": ["#feedde", "#fdd0a2", "#fdae6b", "#fd8d3c",
+               "#f16913", "#d94801", "#8c2d04"],
+    "blues":  ["#eff3ff", "#c6dbef", "#9ecae1", "#6baed6",
+               "#4292c6", "#2171b5", "#084594"],
+}
 
 
 def apply_plot_style() -> None:
@@ -57,6 +68,21 @@ def get_categorical_colors(n: int) -> list[str]:
 def get_sequential_cmap() -> mpl.colors.Colormap:
     """Return the YlOrBr sequential colormap from tol_colors."""
     return colormaps["YlOrBr"]
+
+
+def get_named_cmap(name: str) -> mpl.colors.Colormap:
+    """Return a sequential colormap from SEQUENTIAL_PALETTES by name."""
+    if name not in SEQUENTIAL_PALETTES:
+        raise KeyError(
+            f"Unknown palette {name!r}; "
+            f"available: {sorted(SEQUENTIAL_PALETTES)}"
+        )
+    return LinearSegmentedColormap.from_list(name, SEQUENTIAL_PALETTES[name])
+
+
+def get_heatmap_cmap() -> mpl.colors.Colormap:
+    """Default sequential colormap for heatmaps (blues)."""
+    return get_named_cmap("blues")
 
 
 def remove_extra_spines(ax: plt.Axes) -> None:

@@ -252,6 +252,59 @@ The choice of **k=25** for nearest neighbors is a judgment call. Larger k is mor
 
 ---
 
+### 11. BERT temporal-drift visualisations
+
+**Key files:** `scripts/bert/16_plot_centroid_drift.py`, `scripts/bert/18_plot_cross_period_apd.py`, `src/visualization/temporal_drift_plots.py`
+
+These figures sit on top of the contextualised-embedding pipeline (scripts 11–14, EURLEX-BERT). For every target word and every year we have an `(N, 768)` array of contextualised usage embeddings stored in `data/models/bert/embeddings/{year}.npz`. Two complementary diachronic analyses are computed from those embeddings, and each produces a small family of plots designed for *visual exploration of distributions* rather than single-number tests.
+
+#### A. Centroid-trajectory drift (`figures/centroid_drift/`)
+
+For each word, every year is reduced to a single 768-d centroid (mean of that year's embeddings). The drift signal is the cosine distance between consecutive centroids.
+
+- **`step_grid_top{K}.png` — Step + cumulative drift, small multiples.**
+  One panel per word. Grey bars are the per-year **step distance** (cosine distance from the previous year's centroid). The single bar in red marks the year with the largest step. The blue line on the twin y-axis is the **cumulative drift** (running sum of step distances), which makes it easy to see whether the drift is gradual (steady upward slope) or punctuated (a flat line with a single jump). Use this plot to spot *when* a word moved.
+
+- **`pca_grid_top{K}.png` — 2D PCA centroid trajectories, small multiples.**
+  One panel per word. A 2D PCA is fit *separately* on each word's yearly centroids, so the axes are word-specific (not comparable across panels). The line traces the centroid through embedding space, coloured from light → dark by year (sequential YlOrBr cmap), with start and end years labelled and intermediate years marked every 5 years. The percentages in the title show how much variance the two principal components explain. Use this plot to see the *shape* of drift: a straight line indicates monotone movement in one direction, a U-shape means the word came back near where it started, a tangled scribble means noise.
+
+- **`year_strip.png` — Global per-year strip plot of step distances (system-wide diagnostic).**
+  X-axis: year. Y-axis: step distance. Every grey dot is one word in one year. Overlaid lines are the per-year **mean** (red) and **90th percentile** (blue dashed) across all words. Spikes in this plot mean *many words moved at the same time*, which is almost always a corpus or drafting-style artefact (e.g. an enlargement year, a treaty entering into force, a change in CJEU drafting conventions) rather than per-word semantic drift. Treat any per-word result that lines up with a spike here with caution.
+
+- **`total_drift_hist.png` — Distribution of total drift across all words.**
+  Two histograms (log y-scale): **`total_drift`** (sum of all step distances along the trajectory) and **`end_vs_start`** (single cosine distance between the first and last year's centroid). The two scores rank different drift shapes: `total_drift` rewards words that wander a lot even if they end up near where they started; `end_vs_start` rewards words with a clear net displacement. Vertical red ticks mark and label the top-15 outliers in each. Use this plot to confirm that the top of the ranking really is an outlier rather than a noise-floor word.
+
+- **`{word}.png` (with `--words ...`).**
+  Per-word two-panel detail: the step+cumulative panel beside the PCA trajectory.
+
+#### B. Cross-period APD matrices (`figures/cross_period_apd/`)
+
+For each word we sample up to 50 embeddings per year, compute the cosine distance between every pair, and aggregate into a `(Y × Y)` matrix where entry `(a, b)` is the mean cosine distance between embeddings sampled in year `a` and year `b`. The diagonal is the within-year APD (how polysemous the word is *that year*); the off-diagonal entries reveal *between-year* drift.
+
+- **`heatmap_grid_top{K}.png` — Cross-period heatmaps, small multiples.**
+  One heatmap per word. Both axes are years; the colour at `(a, b)` is the mean cosine distance between embeddings of those two years. All panels share a single colourbar (to the right) so colours are comparable across words. **What to look for:**
+    - **Solid block colour** → stable meaning, no drift.
+    - **Two distinct blocks on the diagonal** (light square top-left, light square bottom-right, darker off-diagonal corners) → a regime change. The boundary between the blocks is the year of the shift.
+    - **Gradient from top-left to bottom-right** → continuous, gradual drift.
+    - **A single dark row/column** → an anomalous year (likely an artefact, cross-check against `year_strip.png`).
+
+- **`marginals_grid_top{K}.png` — Per-year row-mean curves, small multiples.**
+  For each word, the **row mean of the cross-period matrix excluding the diagonal** is plotted against year. This collapses the heatmap to a 1-D summary: each year's average cosine distance from *all other* years. The peak year (red marker, red vertical line) is the proposed change-point — it is the year that looks most different from the rest of the time line, which is exactly the regime boundary you would eye-ball in the heatmap.
+
+- **`drift_excess_hist.png` — Distribution of drift scores across all words.**
+  Two histograms (log y-scale): **`drift_excess = mean_off_diag − mean_diag`** (additive: how much further apart cross-year embeddings are than within-year embeddings) and **`drift_ratio = mean_off_diag / mean_diag`** (multiplicative: same idea normalised by the within-year baseline). Both scores should be positive for almost every word but small in absolute terms; the right tail is what you care about. The additive form is robust for low-APD words; the ratio form is robust for high-APD words. Vertical red ticks mark and label the top-15 outliers.
+
+- **`{word}.png` (with `--words ...`).**
+  Per-word two-panel detail: the heatmap (with its own colourbar) beside its row-mean marginal curve.
+
+#### How to read the two analyses together
+
+The centroid-trajectory plots and the cross-period heatmaps are *measuring different things*. Centroids collapse all of a year's embeddings into a single point and ask "did the centre of mass move?". The cross-period matrix asks "are the *clouds of usages* in two different years drawn from the same distribution?". A word can have a small centroid step but a large cross-period excess if its sense distribution is bimodal and the *mix* of senses is changing. Conversely, a word can have a large centroid step from a year with very few usages (centroid noise) and *not* show up in the cross-period analysis. Words at the top of *both* rankings are the strongest drift candidates; words at the top of only one warrant a closer look at why.
+
+The `year_strip.png` plot is the most important diagnostic in either family: any per-word drift signal that aligns with a system-wide spike there should be treated as a corpus artefact until proven otherwise.
+
+---
+
 ### Interactions between decisions
 
 Several decisions interact in ways that aren't obvious from looking at them individually:

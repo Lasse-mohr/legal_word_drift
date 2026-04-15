@@ -75,7 +75,7 @@ def compute_background_positions(
         n_neighbors = min(15, len(present) - 1)
         reducer = UMAP(
             n_components=2, n_neighbors=n_neighbors,
-            min_dist=0.1, metric="cosine", random_state=42,
+            min_dist=0.1, metric="cosine",# random_state=42,
         )
         coords = reducer.fit_transform(matrix)
     else:
