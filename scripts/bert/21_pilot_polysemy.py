@@ -1,16 +1,25 @@
-"""Pilot polysemy analysis: within-period pairwise cosine distance distributions.
+"""Pilot polysemy analysis: within-period distance distributions.
 
 For each word in configs/polysemy_pilot.yaml, collects up to N occurrences from
 a single year (or a multi-year window via --window), extracts contextualized
-BERT embeddings (pooled over layers 8-10), and computes the pairwise cosine
-distance distribution, silhouette at k=2, and the Hartigan dip test.
+BERT embeddings (pooled over layers 8-10), and computes:
+  - pairwise cosine distance distribution
+  - cosine distance from each embedding to the (renormalized) mean direction
+  - silhouette at k=2 and Hartigan dip test on each distance distribution
+
+The centroid-distance is preferable for unimodality testing: under a unimodal
+Gaussian null its distribution is well-behaved, whereas pairwise distances of
+high-D Gaussian samples can spuriously appear bimodal due to concentration of
+measure.
 
 Outputs:
-  data/results/metrics/polysemy_pilot_{tag}.csv        (per-word summary stats)
-  data/results/metrics/polysemy_pilot_{tag}_dists.npz  (raw pairwise distances)
-  data/results/figures/polysemy_pilot_{tag}.png        (distribution grid)
+  data/results/metrics/polysemy_pilot_{tag}.csv                  (per-word stats)
+  data/results/metrics/polysemy_pilot_{tag}_dists.npz            (pairwise dists)
+  data/results/metrics/polysemy_pilot_{tag}_centroid_dists.npz   (centroid dists)
+  data/results/figures/polysemy_pilot_{tag}_pairwise_p{N}.png    (pairwise grid)
+  data/results/figures/polysemy_pilot_{tag}_centroid_p{N}.png    (centroid grid)
 
-Rerun with --plot-only to redraw the figure from cached distances.
+Rerun with --plot-only to redraw figures from cached distances.
 """
 from __future__ import annotations
 
@@ -28,9 +37,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yaml
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 from sklearn.metrics import silhouette_score
+from sklearn.mixture import BayesianGaussianMixture
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -217,6 +229,190 @@ def encode_and_extract(
     return {w: np.stack(e).astype(np.float32) for w, e in word_embeddings.items() if e}
 
 
+def collect_token_embeddings_for_pca(
+    n_paragraphs: int,
+    batch_size: int,
+    device: str,
+    seed: int,
+    max_tokens: int = 200_000,
+) -> np.ndarray:
+    """Sample paragraphs uniformly across years, encode, gather token embeddings.
+
+    Returns (N, hidden_dim) float32 array of non-special-token hidden states.
+    """
+    logger = logging.getLogger(__name__)
+    rng = Random(seed)
+
+    if not os.path.isdir(PARAGRAPHS_DIR):
+        raise FileNotFoundError(f"No paragraphs directory: {PARAGRAPHS_DIR}")
+    year_files = sorted(
+        os.path.join(PARAGRAPHS_DIR, f) for f in os.listdir(PARAGRAPHS_DIR)
+        if f.endswith(".jsonl")
+    )
+    if not year_files:
+        raise FileNotFoundError(f"No .jsonl in {PARAGRAPHS_DIR}")
+
+    counts_per_file: list[int] = []
+    for fp in year_files:
+        with open(fp, encoding="utf-8") as f:
+            counts_per_file.append(sum(1 for _ in f))
+    total_docs = sum(counts_per_file)
+    logger.info(
+        f"PCA sampling: {len(year_files)} year files, {total_docs} total docs"
+    )
+
+    per_file = [
+        max(1, round(n_paragraphs * c / total_docs)) for c in counts_per_file
+    ]
+
+    sampled_paragraphs: list[str] = []
+    for fp, n_to_sample in zip(year_files, per_file):
+        paras_in_file: list[str] = []
+        with open(fp, encoding="utf-8") as f:
+            for line in f:
+                doc = json.loads(line)
+                for para in doc.get("paragraphs", []):
+                    if len(para) >= 50:
+                        paras_in_file.append(para)
+        if len(paras_in_file) <= n_to_sample:
+            sampled_paragraphs.extend(paras_in_file)
+        else:
+            sampled_paragraphs.extend(rng.sample(paras_in_file, n_to_sample))
+
+    rng.shuffle(sampled_paragraphs)
+    logger.info(f"PCA sampling: {len(sampled_paragraphs)} paragraphs to encode")
+
+    model, tokenizer, dev = load_model(device=device)
+    encoded_list = encode_paragraphs(
+        sampled_paragraphs, model, tokenizer, dev,
+        batch_size=batch_size, layers=DEFAULT_LAYERS,
+    )
+
+    chunks: list[np.ndarray] = []
+    n_collected = 0
+    for enc in encoded_list:
+        keep = [i for i, (s, e) in enumerate(enc.offsets) if s != e]
+        if not keep:
+            continue
+        chunks.append(enc.hidden_states[keep])
+        n_collected += len(keep)
+        if n_collected >= max_tokens:
+            break
+
+    embeddings = np.concatenate(chunks, axis=0).astype(np.float32)
+    if embeddings.shape[0] > max_tokens:
+        # Random subsample down to max_tokens for tractability.
+        rng_np = np.random.default_rng(seed)
+        idx = rng_np.choice(embeddings.shape[0], size=max_tokens, replace=False)
+        embeddings = embeddings[idx]
+    logger.info(f"PCA fit will use {embeddings.shape[0]} token embeddings")
+    return embeddings
+
+
+def fit_or_load_pca(
+    cache_path: str,
+    n_paragraphs: int,
+    n_components: int,
+    refit: bool,
+    batch_size: int,
+    device: str,
+    seed: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Load PCA from cache or fit a new one across all year files.
+
+    Returns (mean, components, explained_variance).
+    """
+    logger = logging.getLogger(__name__)
+    if os.path.exists(cache_path) and not refit:
+        logger.info(f"Loading cached PCA from {cache_path}")
+        with np.load(cache_path) as cache:
+            mean = cache["mean"]
+            components = cache["components"]
+            ev = cache["explained_variance"]
+        logger.info(
+            f"Loaded PCA: hidden_dim={mean.shape[0]}, "
+            f"cached_components={components.shape[0]}"
+        )
+        return mean, components, ev
+
+    logger.info(f"Fitting across-time PCA with up to {n_components} components")
+    embs = collect_token_embeddings_for_pca(
+        n_paragraphs=n_paragraphs, batch_size=batch_size,
+        device=device, seed=seed,
+    )
+    n_components = min(n_components, embs.shape[1], embs.shape[0])
+    pca = PCA(n_components=n_components, random_state=seed)
+    pca.fit(embs)
+    mean = pca.mean_.astype(np.float32)
+    components = pca.components_.astype(np.float32)
+    ev = pca.explained_variance_.astype(np.float32)
+
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    np.savez_compressed(
+        cache_path, mean=mean, components=components, explained_variance=ev,
+    )
+    ratio = ev / ev.sum()
+    logger.info(
+        f"Saved PCA cache to {cache_path}; top-10 explained variance ratio: "
+        + ", ".join(f"{r:.3f}" for r in ratio[:10])
+    )
+    return mean, components, ev
+
+
+def project_embeddings(
+    embeddings: np.ndarray,
+    pca_mean: np.ndarray,
+    pca_components: np.ndarray,
+    all_but_top: int,
+    reduc_dim: int,
+) -> np.ndarray:
+    """Project embeddings onto PCs [all_but_top : all_but_top + reduc_dim]."""
+    if all_but_top + reduc_dim > pca_components.shape[0]:
+        raise ValueError(
+            f"all_but_top ({all_but_top}) + reduc_dim ({reduc_dim}) "
+            f"exceeds available PCA components ({pca_components.shape[0]}). "
+            "Refit with --refit-pca and a larger --pca-n-components."
+        )
+    centered = embeddings.astype(np.float32) - pca_mean
+    selected = pca_components[all_but_top : all_but_top + reduc_dim]
+    return centered @ selected.T
+
+
+def bootstrap_k_estimate(
+    projected: np.ndarray,
+    n_bootstrap: int,
+    k_max: int,
+    weight_threshold: float,
+    cov_type: str,
+    seed: int,
+) -> np.ndarray:
+    """Resample with replacement, fit BGMM, count effective components.
+
+    Returns int32 array of effective-K values (length n_bootstrap).
+    Iterations whose fit raises an exception are recorded as -1.
+    """
+    n = projected.shape[0]
+    rng = np.random.default_rng(seed)
+    k_values = np.empty(n_bootstrap, dtype=np.int32)
+    for i in range(n_bootstrap):
+        idx = rng.integers(0, n, size=n)
+        sample = projected[idx]
+        bgmm = BayesianGaussianMixture(
+            n_components=k_max,
+            covariance_type=cov_type,
+            weight_concentration_prior_type="dirichlet_process",
+            weight_concentration_prior=1.0 / k_max,
+            max_iter=300,
+            random_state=int(rng.integers(0, 2**31 - 1)),
+        )
+        try:
+            bgmm.fit(sample)
+            k_values[i] = int((bgmm.weights_ > weight_threshold).sum())
+        except Exception:
+            k_values[i] = -1
+    return k_values
+
+
 def pairwise_cosine_distances(embeddings: np.ndarray) -> np.ndarray:
     """Return upper-triangle vector of pairwise cosine distances."""
     norms = np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-10
@@ -226,18 +422,41 @@ def pairwise_cosine_distances(embeddings: np.ndarray) -> np.ndarray:
     return 1.0 - sims[iu]
 
 
+def cosine_distance_to_centroid(embeddings: np.ndarray) -> np.ndarray:
+    """Cosine distance from each embedding to the renormalized mean direction."""
+    norms = np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-10
+    normed = embeddings / norms
+    mean_dir = normed.mean(axis=0)
+    mean_dir = mean_dir / (np.linalg.norm(mean_dir) + 1e-10)
+    return 1.0 - normed @ mean_dir
+
+
 def compute_word_stats(
     embeddings: np.ndarray,
     seed: int,
-) -> tuple[np.ndarray, dict]:
-    """Compute pairwise-distance vector and summary statistics for one word."""
+    *,
+    projected: np.ndarray | None = None,
+    n_bootstrap: int = 0,
+    k_max: int = 6,
+    weight_threshold: float = 0.05,
+    cov_type: str = "diag",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    """Compute pairwise + centroid distances, BGMM-bootstrap K, and summary stats.
+
+    If ``projected`` is given and ``n_bootstrap > 0``, runs the BGMM bootstrap on
+    the projected (PCA-reduced) embeddings and returns the K-distribution.
+    """
     dists = pairwise_cosine_distances(embeddings)
+    centroid_dists = cosine_distance_to_centroid(embeddings)
 
     stats = {
         "n_usages": int(embeddings.shape[0]),
         "mean_dist": float(dists.mean()),
         "median_dist": float(np.median(dists)),
         "std_dist": float(dists.std()),
+        "mean_centroid_dist": float(centroid_dists.mean()),
+        "median_centroid_dist": float(np.median(centroid_dists)),
+        "std_centroid_dist": float(centroid_dists.std()),
     }
 
     # Silhouette at k=2 on the embeddings themselves.
@@ -253,9 +472,9 @@ def compute_word_stats(
     else:
         stats["silhouette_k2"] = float("nan")
 
-    # Hartigan dip test on the distance distribution.
+    # Hartigan dip test on each distance distribution.
+    # diptest.diptest returns (dip_statistic, p_value).
     if dists.size >= 4:
-        # diptest.diptest returns (dip_statistic, p_value).
         dip, pval = diptest.diptest(dists)
         stats["dip"] = float(dip)
         stats["dip_pvalue"] = float(pval)
@@ -263,7 +482,61 @@ def compute_word_stats(
         stats["dip"] = float("nan")
         stats["dip_pvalue"] = float("nan")
 
-    return dists, stats
+    if centroid_dists.size >= 4:
+        dip_c, pval_c = diptest.diptest(centroid_dists)
+        stats["centroid_dip"] = float(dip_c)
+        stats["centroid_dip_pvalue"] = float(pval_c)
+    else:
+        stats["centroid_dip"] = float("nan")
+        stats["centroid_dip_pvalue"] = float("nan")
+
+    # Bootstrap-based K estimation on projected embeddings.
+    if projected is not None and n_bootstrap > 0 and projected.shape[0] >= 10:
+        k_values = bootstrap_k_estimate(
+            projected, n_bootstrap=n_bootstrap, k_max=k_max,
+            weight_threshold=weight_threshold, cov_type=cov_type, seed=seed,
+        )
+        valid = k_values[k_values > 0]
+        if valid.size > 0:
+            counts = np.bincount(valid, minlength=k_max + 1)
+            mode = int(counts.argmax())
+            stats["k_mode"] = mode
+            stats["k_mode_freq"] = float(counts[mode] / valid.size)
+            stats["k_n_valid_bootstraps"] = int(valid.size)
+        else:
+            stats["k_mode"] = -1
+            stats["k_mode_freq"] = float("nan")
+            stats["k_n_valid_bootstraps"] = 0
+    else:
+        k_values = np.empty(0, dtype=np.int32)
+        stats["k_mode"] = -1
+        stats["k_mode_freq"] = float("nan")
+        stats["k_n_valid_bootstraps"] = 0
+
+    return dists, centroid_dists, k_values, stats
+
+
+def _draw_k_inset(
+    ax,
+    k_values: np.ndarray | None,
+    k_max: int,
+) -> None:
+    """Render a small histogram of bootstrap K values in the upper-right of ax."""
+    if k_values is None or len(k_values) == 0:
+        return
+    valid = k_values[k_values > 0]
+    if valid.size == 0:
+        return
+    inset = inset_axes(ax, width="32%", height="32%", loc="upper right", borderpad=0.4)
+    bins = np.arange(0.5, k_max + 1.5, 1.0)
+    inset.hist(valid, bins=bins, color="#555", edgecolor="white", linewidth=0.3)
+    inset.set_xticks(range(1, k_max + 1))
+    inset.set_xticklabels([str(k) for k in range(1, k_max + 1)], fontsize=5)
+    inset.set_yticks([])
+    inset.tick_params(axis="x", length=2, pad=1)
+    inset.set_title("K", fontsize=6, pad=1)
+    for spine in ("top", "right", "left"):
+        inset.spines[spine].set_visible(False)
 
 
 def _draw_subplot(
@@ -274,6 +547,11 @@ def _draw_subplot(
     s: dict,
     hist_color: str,
     kde_color: str,
+    *,
+    xlabel: str = "cos dist",
+    pval_key: str = "dip_pvalue",
+    k_values: np.ndarray | None = None,
+    k_max: int = 6,
 ) -> None:
     ax.hist(
         dists, bins=60, density=True,
@@ -287,21 +565,28 @@ def _draw_subplot(
         pass
 
     sil = s.get("silhouette_k2", float("nan"))
-    pval = s.get("dip_pvalue", float("nan"))
+    pval = s.get(pval_key, float("nan"))
+    k_mode = s.get("k_mode", -1)
+    k_mode_freq = s.get("k_mode_freq", float("nan"))
+    parts = [f"n={int(s['n_usages'])}", f"sil₂={sil:.2f}"]
     if not np.isnan(pval):
-        subtitle = f"n={int(s['n_usages'])}  sil₂={sil:.2f}  dip p={pval:.1e}"
-    else:
-        subtitle = f"n={int(s['n_usages'])}  sil₂={sil:.2f}"
-    ax.set_title(f"{word}\n{subtitle}", fontsize=9)
-    ax.set_xlabel("cos dist", fontsize=8)
+        parts.append(f"dip p={pval:.1e}")
+    if isinstance(k_mode, (int, np.integer)) and k_mode > 0:
+        if not np.isnan(k_mode_freq):
+            parts.append(f"K̂={int(k_mode)} ({k_mode_freq:.0%})")
+        else:
+            parts.append(f"K̂={int(k_mode)}")
+    ax.set_title(f"{word}\n{'  '.join(parts)}", fontsize=9)
+    ax.set_xlabel(xlabel, fontsize=8)
     ax.set_ylabel("density", fontsize=8)
     ax.tick_params(axis="both", labelsize=7)
     ax.text(
-        0.98, 0.95, cat[:4],
-        transform=ax.transAxes, ha="right", va="top",
+        0.02, 0.95, cat[:4],
+        transform=ax.transAxes, ha="left", va="top",
         fontsize=7, color="#555",
     )
     remove_extra_spines(ax)
+    _draw_k_inset(ax, k_values, k_max)
 
 
 def plot_grids(
@@ -311,6 +596,13 @@ def plot_grids(
     out_dir: str,
     tag: str,
     title_prefix: str,
+    *,
+    kind: str = "pairwise",
+    pval_key: str = "dip_pvalue",
+    xlabel: str = "cos dist",
+    palette: str = "blues",
+    k_distributions: dict[str, np.ndarray] | None = None,
+    k_max: int = 6,
 ) -> list[str]:
     """Render per-page 5x5 grids, one subplot per word. Returns list of file paths.
 
@@ -318,8 +610,8 @@ def plot_grids(
     frequency_sampled) and chunked into pages of GRID_ROWS × GRID_COLS.
     """
     apply_plot_style()
-    blues = SEQUENTIAL_PALETTES["blues"]
-    hist_color, kde_color = blues[2], blues[5]
+    pal = SEQUENTIAL_PALETTES[palette]
+    hist_color, kde_color = pal[2], pal[5]
 
     ordered: list[tuple[str, str]] = []
     for cat in CATEGORIES:
@@ -345,8 +637,13 @@ def plot_grids(
 
         for i, (cat, word) in enumerate(chunk):
             ax = axes[i // GRID_COLS, i % GRID_COLS]
+            kvals = (
+                k_distributions.get(word) if k_distributions is not None else None
+            )
             _draw_subplot(
-                ax, word, cat, distances[word], stats[word], hist_color, kde_color
+                ax, word, cat, distances[word], stats[word], hist_color, kde_color,
+                xlabel=xlabel, pval_key=pval_key,
+                k_values=kvals, k_max=k_max,
             )
         for j in range(len(chunk), per_page):
             axes[j // GRID_COLS, j % GRID_COLS].axis("off")
@@ -356,7 +653,9 @@ def plot_grids(
             fontsize=13, y=1.00,
         )
         fig.tight_layout()
-        out_path = os.path.join(out_dir, f"polysemy_pilot_{tag}_p{page + 1:02d}.png")
+        out_path = os.path.join(
+            out_dir, f"polysemy_pilot_{tag}_{kind}_p{page + 1:02d}.png"
+        )
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         plt.close(fig)
         written.append(out_path)
@@ -391,6 +690,49 @@ def main() -> None:
         "--sample-min-freq", type=int, default=None,
         help="Minimum corpus frequency for the sampling pool. "
              "Defaults to config's max_occurrences_per_word.",
+    )
+    # PCA + BGMM-bootstrap parameters.
+    parser.add_argument(
+        "--reduc-dim", type=int, default=25,
+        help="PCA dimensions to keep for BGMM (after dropping --all-but-top).",
+    )
+    parser.add_argument(
+        "--all-but-top", type=int, default=0,
+        help="Drop the top N PCs before retaining --reduc-dim (anisotropy correction).",
+    )
+    parser.add_argument(
+        "--pca-cache", type=str,
+        default=os.path.join(METRICS_DIR, "pca_acrosstime.npz"),
+        help="Cache path for the across-time PCA fit.",
+    )
+    parser.add_argument(
+        "--pca-paragraphs", type=int, default=2000,
+        help="Total paragraphs to sample (across all years) for PCA fitting.",
+    )
+    parser.add_argument(
+        "--pca-n-components", type=int, default=100,
+        help="Number of PCA components to fit and cache.",
+    )
+    parser.add_argument(
+        "--refit-pca", action="store_true",
+        help="Refit PCA even if a cached file exists.",
+    )
+    parser.add_argument(
+        "--n-bootstrap", type=int, default=100,
+        help="Bootstrap iterations per word for BGMM K estimation. Set 0 to skip.",
+    )
+    parser.add_argument(
+        "--k-max", type=int, default=6,
+        help="Max BGMM components considered.",
+    )
+    parser.add_argument(
+        "--k-weight-threshold", type=float, default=0.05,
+        help="Min weight for a BGMM component to count as 'effective'.",
+    )
+    parser.add_argument(
+        "--cov-type", type=str, default="diag",
+        choices=("full", "tied", "diag", "spherical"),
+        help="BGMM covariance type. Diagonal is the safe default for ~25-dim BGMMs.",
     )
     args = parser.parse_args()
 
@@ -439,24 +781,70 @@ def main() -> None:
 
     os.makedirs(METRICS_DIR, exist_ok=True)
     dists_path = os.path.join(METRICS_DIR, f"polysemy_pilot_{tag}_dists.npz")
+    centroid_dists_path = os.path.join(
+        METRICS_DIR, f"polysemy_pilot_{tag}_centroid_dists.npz"
+    )
+    k_dists_path = os.path.join(
+        METRICS_DIR, f"polysemy_pilot_{tag}_k_dists.npz"
+    )
     summary_path = os.path.join(METRICS_DIR, f"polysemy_pilot_{tag}.csv")
 
     if args.plot_only:
-        if not (os.path.exists(dists_path) and os.path.exists(summary_path)):
+        required = [dists_path, summary_path]
+        missing = [p for p in required if not os.path.exists(p)]
+        if missing:
             raise FileNotFoundError(
-                f"--plot-only requires cached {dists_path} and {summary_path}"
+                f"--plot-only requires cached files; missing: {missing}"
             )
         cached = np.load(dists_path, allow_pickle=False)
         distances = {k: cached[k] for k in cached.files}
+        if os.path.exists(centroid_dists_path):
+            cached_c = np.load(centroid_dists_path, allow_pickle=False)
+            centroid_distances = {k: cached_c[k] for k in cached_c.files}
+        else:
+            logger.warning(
+                f"No cached centroid distances at {centroid_dists_path}; "
+                "skipping centroid figure. Rerun without --plot-only to generate."
+            )
+            centroid_distances = {}
+        if os.path.exists(k_dists_path):
+            cached_k = np.load(k_dists_path, allow_pickle=False)
+            k_distributions = {k: cached_k[k] for k in cached_k.files}
+        else:
+            k_distributions = {}
         summary = pd.read_csv(summary_path).set_index("word")
-        stats = summary.to_dict(orient="index")
-        written = plot_grids(
-            distances, stats, categories, FIGURES_DIR, tag,
+        stats_map = summary.to_dict(orient="index")
+        for p in plot_grids(
+            distances, stats_map, categories, FIGURES_DIR, tag,
             title_prefix=f"Within-period pairwise cosine distances ({tag})",
-        )
-        for p in written:
+            kind="pairwise", pval_key="dip_pvalue", xlabel="pairwise cos dist",
+            palette="blues",
+            k_distributions=k_distributions, k_max=args.k_max,
+        ):
             logger.info(f"Wrote figure {p}")
+        if centroid_distances:
+            for p in plot_grids(
+                centroid_distances, stats_map, categories, FIGURES_DIR, tag,
+                title_prefix=f"Within-period cos distance to centroid ({tag})",
+                kind="centroid", pval_key="centroid_dip_pvalue",
+                xlabel="cos dist to centroid", palette="greens",
+                k_distributions=k_distributions, k_max=args.k_max,
+            ):
+                logger.info(f"Wrote figure {p}")
         return
+
+    # Fit (or load) the across-time PCA before any per-word work.
+    pca_mean = pca_components = None
+    if args.n_bootstrap > 0:
+        pca_mean, pca_components, _pca_ev = fit_or_load_pca(
+            cache_path=args.pca_cache,
+            n_paragraphs=args.pca_paragraphs,
+            n_components=args.pca_n_components,
+            refit=args.refit_pca,
+            batch_size=args.batch_size,
+            device=args.device,
+            seed=cfg["seed"],
+        )
 
     # Collect usages, encode, extract embeddings.
     sampled = collect_usages(
@@ -476,16 +864,42 @@ def main() -> None:
         kept, years, batch_size=args.batch_size, device=args.device
     )
 
-    # Compute distances + stats.
+    # Compute distances, projections, BGMM bootstrap, stats.
     distances: dict[str, np.ndarray] = {}
+    centroid_distances: dict[str, np.ndarray] = {}
+    k_distributions: dict[str, np.ndarray] = {}
+    per_word_residual: dict[str, float] = {}
     summary_rows = []
     for word, embs in embeddings.items():
         if embs.shape[0] < min_n:
             continue
-        d, s = compute_word_stats(embs, seed=cfg["seed"])
+        if pca_mean is not None and pca_components is not None:
+            projected = project_embeddings(
+                embs, pca_mean, pca_components,
+                all_but_top=args.all_but_top, reduc_dim=args.reduc_dim,
+            )
+            # Residual variance left outside the retained subspace, per word.
+            centered = embs.astype(np.float32) - pca_mean
+            total_var = float(np.var(centered, axis=0).sum())
+            kept_var = float(np.var(projected, axis=0).sum())
+            per_word_residual[word] = (
+                1.0 - kept_var / total_var if total_var > 0 else float("nan")
+            )
+        else:
+            projected = None
+
+        d, c, kvals, s = compute_word_stats(
+            embs, seed=cfg["seed"],
+            projected=projected, n_bootstrap=args.n_bootstrap,
+            k_max=args.k_max, weight_threshold=args.k_weight_threshold,
+            cov_type=args.cov_type,
+        )
         distances[word] = d.astype(np.float32)
+        centroid_distances[word] = c.astype(np.float32)
+        if kvals.size > 0:
+            k_distributions[word] = kvals
+        s["per_word_residual_var"] = per_word_residual.get(word, float("nan"))
         row = {"word": word, **s}
-        # Category label for the summary.
         for cat in CATEGORIES:
             if word in categories[cat]:
                 row["category"] = cat
@@ -497,25 +911,61 @@ def main() -> None:
     )
     summary_df.to_csv(summary_path, index=False)
     np.savez_compressed(dists_path, **distances)
-    logger.info(f"Wrote {summary_path} and {dists_path}")
+    np.savez_compressed(centroid_dists_path, **centroid_distances)
+    if k_distributions:
+        np.savez_compressed(k_dists_path, **k_distributions)
+        logger.info(
+            f"Wrote {summary_path}, {dists_path}, {centroid_dists_path}, "
+            f"and {k_dists_path}"
+        )
+    else:
+        logger.info(
+            f"Wrote {summary_path}, {dists_path}, and {centroid_dists_path}"
+        )
 
     stats_map = summary_df.set_index("word").to_dict(orient="index")
-    written = plot_grids(
+    for p in plot_grids(
         distances, stats_map, categories, FIGURES_DIR, tag,
         title_prefix=f"Within-period pairwise cosine distances ({tag})",
-    )
-    for p in written:
+        kind="pairwise", pval_key="dip_pvalue", xlabel="pairwise cos dist",
+        palette="blues",
+        k_distributions=k_distributions, k_max=args.k_max,
+    ):
+        logger.info(f"Wrote figure {p}")
+    for p in plot_grids(
+        centroid_distances, stats_map, categories, FIGURES_DIR, tag,
+        title_prefix=f"Within-period cos distance to centroid ({tag})",
+        kind="centroid", pval_key="centroid_dip_pvalue",
+        xlabel="cos dist to centroid", palette="greens",
+        k_distributions=k_distributions, k_max=args.k_max,
+    ):
         logger.info(f"Wrote figure {p}")
 
     # Console summary.
     logger.info("\nSummary (by category, mean_dist desc):")
     for _, row in summary_df.iterrows():
+        k_mode_raw = row["k_mode"] if "k_mode" in row else -1
+        k_mode = -1 if bool(pd.isna(k_mode_raw)) else int(k_mode_raw)  # type: ignore[arg-type]
+        k_mode_freq_raw = (
+            row["k_mode_freq"] if "k_mode_freq" in row else float("nan")
+        )
+        k_mode_freq = (
+            float("nan") if bool(pd.isna(k_mode_freq_raw))
+            else float(k_mode_freq_raw)  # type: ignore[arg-type]
+        )
+        k_str = (
+            f"K̂={k_mode}({k_mode_freq:.0%})"
+            if k_mode > 0 and not np.isnan(k_mode_freq)
+            else "K̂=-"
+        )
         logger.info(
             f"  [{row.get('category','?'):<13}] {row['word']:<14} "
             f"n={int(row['n_usages']):<5} "
             f"mean={row['mean_dist']:.3f}  "
             f"sil2={row['silhouette_k2']:.3f}  "
-            f"dip_p={row['dip_pvalue']:.2e}"
+            f"dip_p={row['dip_pvalue']:.2e}  "
+            f"cdip_p={row['centroid_dip_pvalue']:.2e}  "
+            f"{k_str}"
         )
 
 
