@@ -5,10 +5,11 @@ For every year a word appears in the BERT embeddings:
     distances and run diptest.diptest(), recording (dip, p_value).
   - Otherwise record NaN and flag the year as untested.
 
-A word is flagged ``is_monosemous`` when the fraction of its non-zero-count
-years that (a) meet the min_usages floor and (b) pass the dip test
-(p > --p-threshold) exceeds 0.5. This is the simple first pass; we can
-tighten the criterion later.
+Classification (see notebooks/01_monosemous_word_exploration_21-04-2026.ipynb):
+  - A year is *evaluable* iff n_usages >= --min-usages.
+  - A year *passes* iff evaluable AND p_value > --p-threshold.
+  - A year *fails* iff evaluable AND not passing.
+  - A word is monosemous iff n_pass >= --k-pass AND n_fail <= --max-fails.
 
 Outputs:
   data/results/metrics/dip_by_word_year.csv
@@ -80,23 +81,27 @@ def dip_per_word_year(
 
 
 def summarize_monosemy(
-    df: pd.DataFrame, p_threshold: float
+    df: pd.DataFrame, p_threshold: float, k_pass: int, max_fails: int
 ) -> pd.DataFrame:
-    """Per-word summary; flag monosemous = > 50% of present years pass."""
+    """Per-word summary; flag monosemous iff n_pass>=k_pass AND n_fail<=max_fails.
+
+    A year is evaluable iff ``tested`` is True (i.e. n_usages >= --min-usages).
+    Evaluable years pass iff p_value > p_threshold, otherwise they fail.
+    """
     rows = []
     for word, g in df.groupby("word"):
-        n_present = len(g)
         tested = g[g["tested"]]
         n_tested = len(tested)
-        n_passing = int((tested["p_value"] > p_threshold).sum())
-        passing_rows = tested[tested["p_value"] > p_threshold]
-        frac_passing = n_passing / n_present if n_present else 0.0
+        passing_mask = tested["p_value"] > p_threshold
+        n_pass = int(passing_mask.sum())
+        n_fail = n_tested - n_pass
+        passing_rows = tested[passing_mask]
         rows.append({
             "word": word,
-            "n_years_present": n_present,
+            "n_years_present": len(g),
             "n_years_tested": n_tested,
-            "n_years_passing": n_passing,
-            "frac_passing": frac_passing,
+            "n_pass": n_pass,
+            "n_fail": n_fail,
             "min_p_tested": (
                 float(tested["p_value"].min()) if n_tested else float("nan")
             ),
@@ -105,11 +110,14 @@ def summarize_monosemy(
             ),
             "mean_p_passing": (
                 float(passing_rows["p_value"].mean())
-                if n_passing else float("nan")
+                if n_pass else float("nan")
             ),
-            "is_monosemous": frac_passing > 0.5,
+            "is_monosemous": (n_pass >= k_pass) and (n_fail <= max_fails),
         })
-    return pd.DataFrame(rows).sort_values("frac_passing", ascending=False)
+    return (
+        pd.DataFrame(rows)
+        .sort_values(["is_monosemous", "n_pass"], ascending=[False, False])
+    )
 
 
 def plot_dip_over_time(
@@ -169,12 +177,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start", type=int, default=1990)
     parser.add_argument("--end", type=int, default=2025)
-    parser.add_argument("--min-usages", type=int, default=100,
-                        help="Per-year usage floor for dip testing.")
+    parser.add_argument("--min-usages", type=int, default=150,
+                        help="Per-year usage floor for dip testing (N_FLOOR).")
     parser.add_argument("--min-year-coverage", type=int, default=10,
                         help="Word must appear (n>=1) in at least this many years.")
-    parser.add_argument("--p-threshold", type=float, default=0.1,
+    parser.add_argument("--p-threshold", type=float, default=0.10,
                         help="Dip p-value threshold (pass if p > threshold).")
+    parser.add_argument("--k-pass", type=int, default=5,
+                        help="Min # of passing years required to be monosemous.")
+    parser.add_argument("--max-fails", type=int, default=0,
+                        help="Max # of failing (evaluable but p<=threshold) years allowed.")
     parser.add_argument("--example-words", type=str,
                         default="market,court,article,regulation,measure",
                         help="Comma-separated words for the exploration figure.")
@@ -188,7 +200,8 @@ def main() -> None:
     logger.info(
         f"Dip testing with min_usages={args.min_usages}, "
         f"min_year_coverage={args.min_year_coverage}, "
-        f"p_threshold={args.p_threshold}"
+        f"p_threshold={args.p_threshold}, "
+        f"k_pass={args.k_pass}, max_fails={args.max_fails}"
     )
 
     df = dip_per_word_year(
@@ -205,7 +218,12 @@ def main() -> None:
     df.to_csv(dip_path, index=False)
     logger.info(f"Wrote {dip_path} ({len(df):,} rows)")
 
-    summary = summarize_monosemy(df, p_threshold=args.p_threshold)
+    summary = summarize_monosemy(
+        df,
+        p_threshold=args.p_threshold,
+        k_pass=args.k_pass,
+        max_fails=args.max_fails,
+    )
     summary_path = os.path.join(METRICS_DIR, "monosemy_summary.csv")
     summary.to_csv(summary_path, index=False)
     logger.info(f"Wrote {summary_path}")

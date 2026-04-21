@@ -183,7 +183,7 @@ def main() -> None:
     parser.add_argument("--end", type=int, default=2025)
     parser.add_argument("--n-words", type=int, default=100)
     parser.add_argument("--n-strata", type=int, default=10)
-    parser.add_argument("--min-usages", type=int, default=100)
+    parser.add_argument("--min-usages", type=int, default=150)
     parser.add_argument("--max-per-year", type=int, default=300)
     parser.add_argument("--kde-gridsize", type=int, default=200)
     parser.add_argument("--kde-range", type=str, default="0.0,1.5")
