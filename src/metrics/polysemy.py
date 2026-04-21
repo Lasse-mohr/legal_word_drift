@@ -18,6 +18,26 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
+def pairwise_cosine_distances(embeddings: np.ndarray) -> np.ndarray:
+    """Upper-triangle vector of pairwise cosine distances.
+
+    Args:
+        embeddings: (N, D) array.
+
+    Returns:
+        1-D array of length N*(N-1)/2, float32. Empty if N < 2.
+    """
+    n = embeddings.shape[0]
+    if n < 2:
+        return np.empty(0, dtype=np.float32)
+    vecs = embeddings.astype(np.float32)
+    norms = np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-10
+    normed = vecs / norms
+    sims = normed @ normed.T
+    iu = np.triu_indices(n, k=1)
+    return (1.0 - sims[iu]).astype(np.float32)
+
+
 def average_pairwise_distance(embeddings: np.ndarray) -> float:
     """Mean cosine distance between all pairs of contextualized embeddings.
 

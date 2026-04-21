@@ -312,6 +312,70 @@ def cross_period_apd_matrix(
     return years, matrix
 
 
+def cross_period_mean_var_matrix(
+    per_year_embs: dict[int, np.ndarray],
+    max_per_year: int = 300,
+    seed: int = 42,
+) -> tuple[list[int], np.ndarray, np.ndarray]:
+    """Cross-period pairwise distance mean AND variance for one word.
+
+    Same block structure as ``cross_period_apd_matrix`` but returns two
+    (Y, Y) matrices computed from identical pair sets:
+      - ``mean_mat[a, b]``: mean cosine distance between embeddings in
+        years a and b. Diagonal uses within-year pairs only (excludes
+        self-self with zero distance).
+      - ``var_mat[a, b]``: variance of those same distances; diagonal
+        likewise from off-diagonal pairs only.
+
+    Returns ``(years, mean_mat, var_mat)``. Cells with fewer than 2
+    contributing pairs are NaN.
+    """
+    years = sorted(per_year_embs.keys())
+    if not years:
+        empty = np.empty((0, 0), dtype=np.float32)
+        return [], empty, empty
+
+    rng = np.random.default_rng(seed)
+    blocks: list[np.ndarray] = []
+    sizes: list[int] = []
+    for y in years:
+        embs = per_year_embs[y].astype(np.float32)
+        n = embs.shape[0]
+        if n > max_per_year:
+            idx = rng.choice(n, size=max_per_year, replace=False)
+            embs = embs[idx]
+        norms = np.linalg.norm(embs, axis=1, keepdims=True) + 1e-10
+        blocks.append(embs / norms)
+        sizes.append(embs.shape[0])
+
+    stacked = np.concatenate(blocks, axis=0)
+    distances = 1.0 - stacked @ stacked.T
+
+    Y = len(years)
+    mean_mat = np.full((Y, Y), np.nan, dtype=np.float32)
+    var_mat = np.full((Y, Y), np.nan, dtype=np.float32)
+    starts = np.cumsum([0] + sizes[:-1])
+    for a in range(Y):
+        sa, ea = int(starts[a]), int(starts[a]) + sizes[a]
+        for b in range(a, Y):
+            sb, eb = int(starts[b]), int(starts[b]) + sizes[b]
+            block = distances[sa:ea, sb:eb]
+            if a == b:
+                n = block.shape[0]
+                if n < 2:
+                    continue
+                iu = np.triu_indices(n, k=1)
+                vals = block[iu]
+            else:
+                vals = block.ravel()
+            if vals.size < 2:
+                continue
+            mean_mat[a, b] = mean_mat[b, a] = float(vals.mean())
+            var_mat[a, b] = var_mat[b, a] = float(vals.var())
+
+    return years, mean_mat, var_mat
+
+
 def cross_period_drift_score(
     years: list[int], matrix: np.ndarray
 ) -> dict:

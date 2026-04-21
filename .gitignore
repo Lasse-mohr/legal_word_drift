@@ -34,3 +34,7 @@ Thumbs.db
 # Gensim temp files
 *.npy
 *.npz
+
+# Working notes (personal)
+working_notes.md
+.research-notes.md
