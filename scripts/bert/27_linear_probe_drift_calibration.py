@@ -116,13 +116,14 @@ def fit_probe_auc(
         return None
 
     clf = LogisticRegressionCV(
-        Cs=10, penalty="l2", cv=cv, scoring="roc_auc",
+        Cs=10, l1_ratios=(0,), cv=cv, scoring="roc_auc",
         max_iter=1000, n_jobs=1, random_state=seed,
+        use_legacy_attributes=False,
     )
     clf.fit(X_tr, y_tr)
     scores = clf.decision_function(X_te)
     auc = float(roc_auc_score(y_te, scores))
-    c_chosen = float(clf.C_[0])
+    c_chosen = float(np.atleast_1d(clf.C_)[0])
     return {"auc": auc, "n_per_class": int(n), "c_chosen": c_chosen}
 
 
