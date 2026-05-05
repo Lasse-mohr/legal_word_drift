@@ -34,7 +34,10 @@
       "Bash(wc -l /Users/lmmi/legal_word_drift/data/processed/paragraphs/*.jsonl)",
       "Bash(sort -t/ -k8 -n)",
       "Bash(python3:*)",
-      "Bash(wc -l /Users/lmmi/legal_word_drift/data/processed/sentences/*.txt)"
+      "Bash(wc -l /Users/lmmi/legal_word_drift/data/processed/sentences/*.txt)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git reset *)"
     ]
   }
 }

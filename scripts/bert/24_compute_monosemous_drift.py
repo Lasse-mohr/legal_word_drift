@@ -183,7 +183,7 @@ def main() -> None:
     parser.add_argument("--end", type=int, default=2025)
     parser.add_argument("--n-words", type=int, default=100)
     parser.add_argument("--n-strata", type=int, default=10)
-    parser.add_argument("--min-usages", type=int, default=2,
+    parser.add_argument("--min-usages", type=int, default=10,
                         help="Minimum embeddings/year to render. 2 is the "
                              "floor for computing a pairwise distance.")
     parser.add_argument("--max-per-year", type=int, default=300)
