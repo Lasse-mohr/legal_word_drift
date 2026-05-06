@@ -1,27 +1,30 @@
-"""Linear-probe AUC as a per-word drift statistic — calibration prototype.
+"""Linear-probe drift statistic — calibration prototype.
 
 For each target word and each consecutive year-pair, fit an L2-regularised
-logistic regression on L2-normalised BERT embeddings labelled by year. The
-held-out AUC is the per-pair drift statistic (classifier two-sample test;
-Lopez-Paz & Oquab 2017). Under the null the held-out AUC is 0.5.
+logistic regression on L2-normalised BERT embeddings labelled by year. We
+report two held-out statistics per (word, year-pair):
 
-Calibration questions answered here:
-  1. What does the AUC trajectory look like for the four target words?
-  2. What is the permutation null for ``organization`` (year labels shuffled
-     across all of that word's embeddings, sweep re-run)?
-  3. Is the cross-(word, year-pair) AUC distribution roughly Gaussian-ish,
-     and where is it centred? (Off-0.5 centre signals a corpus-composition
-     floor we should worry about.)
+  * **acc** — held-out accuracy (== precision under balanced classes). This
+    is the primary statistic. Under H0 of no drift, with balanced held-out
+    classes, E[acc] = 1/2 exactly and Var(acc) ≤ 1/(8 ñ) where ñ is the
+    held-out points per class.
+  * **auc** — held-out ROC-AUC. Kept as a secondary diagnostic.
+
+Permutation null (year labels shuffled across all of a word's embeddings,
+sweep re-run) is run on all target words to characterise the null
+distribution of acc and auc.
 
 Outputs:
   data/results/bert/linear_probe_calibration/
-    auc_real.csv
-    auc_perm_organization.csv
     counts_per_year.csv
+    metrics_real.csv                    # acc + auc, real labels
+    metrics_perm_{word}.csv             # acc + auc, permuted labels (per word)
   data/results/figures/linear_probe_calibration/
-    auc_distribution_real.png
+    acc_distribution_real.png
+    acc_over_time_per_word.png
+    permutation_null_acc_{word}.png
+    auc_distribution_real.png           # legacy AUC view
     auc_over_time_per_word.png
-    permutation_null_organization.png
 """
 from __future__ import annotations
 
@@ -33,12 +36,13 @@ import sys
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from sklearn.linear_model import LogisticRegressionCV
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import accuracy_score, roc_auc_score
 
 from src.metrics.temporal_drift import load_per_year_embeddings
 from src.utils.config import (
@@ -55,7 +59,6 @@ from src.visualization.plot_config import (
 
 
 TARGET_WORDS = ["organization", "general", "citizen", "referring"]
-PERM_WORD = "organization"
 
 
 # ── Data loading ─────────────────────────────────────────────────────────
@@ -81,10 +84,10 @@ def load_word_embeddings(
 # ── Probe ────────────────────────────────────────────────────────────────
 
 
-def fit_probe_auc(
+def fit_probe(
     X_a: np.ndarray, X_b: np.ndarray, seed: int
 ) -> dict[str, float] | None:
-    """Balance, 70/30 stratified split, L2-LogReg with CV'd C, held-out AUC.
+    """Balance, 70/30 stratified split, L2-LogReg with CV'd C, held-out metrics.
 
     Returns None if either class has < 4 instances (can't stratify both
     splits and run an internal 5-fold CV).
@@ -122,9 +125,18 @@ def fit_probe_auc(
     )
     clf.fit(X_tr, y_tr)
     scores = clf.decision_function(X_te)
+    preds = clf.predict(X_te)
     auc = float(roc_auc_score(y_te, scores))
+    acc = float(accuracy_score(y_te, preds))
+    n_test_per_class = int((y_te == 0).sum())
     c_chosen = float(np.atleast_1d(clf.C_)[0])
-    return {"auc": auc, "n_per_class": int(n), "c_chosen": c_chosen}
+    return {
+        "auc": auc,
+        "acc": acc,
+        "n_per_class": int(n),
+        "n_test_per_class": n_test_per_class,
+        "c_chosen": c_chosen,
+    }
 
 
 # ── Sweeps ───────────────────────────────────────────────────────────────
@@ -145,7 +157,7 @@ def sweep_consecutive_pairs(
         # Seed varies by pair so subsampling differs across pairs but is
         # reproducible.
         pair_seed = seed + ya
-        result = fit_probe_auc(X_a, X_b, seed=pair_seed)
+        result = fit_probe(X_a, X_b, seed=pair_seed)
         if result is None:
             continue
         rows.append({
@@ -155,6 +167,8 @@ def sweep_consecutive_pairs(
             "n_a_raw": int(X_a.shape[0]),
             "n_b_raw": int(X_b.shape[0]),
             "n_per_class": result["n_per_class"],
+            "n_test_per_class": result["n_test_per_class"],
+            "acc": result["acc"],
             "auc": result["auc"],
             "c_chosen": result["c_chosen"],
         })
@@ -169,15 +183,15 @@ def permutation_null(
     seed: int,
 ) -> pd.DataFrame:
     """Shuffle year labels across all of the word's embeddings, re-sweep."""
-    logger = logging.getLogger(__name__)
-
     available_years = [y for y in years if y in per_year]
     sizes = [per_year[y].shape[0] for y in available_years]
     X_all = np.vstack([per_year[y] for y in available_years])
     rng = np.random.default_rng(seed)
 
     frames: list[pd.DataFrame] = []
-    for perm_id in range(n_perms):
+    pbar = tqdm(range(n_perms), desc=f"perm {word}", unit="perm")
+    running_acc, running_auc = 0.0, 0.0
+    for perm_id in pbar:
         order = rng.permutation(X_all.shape[0])
         X_shuffled = X_all[order]
         # Re-split into per-year arrays of the original sizes.
@@ -192,10 +206,10 @@ def permutation_null(
         )
         df["perm_id"] = perm_id
         frames.append(df)
-        logger.info(
-            f"  perm {perm_id + 1}/{n_perms}: "
-            f"mean AUC = {df['auc'].mean():.3f}"
-        )
+        # Running mean across permutations seen so far.
+        running_acc += (df["acc"].mean() - running_acc) / (perm_id + 1)
+        running_auc += (df["auc"].mean() - running_auc) / (perm_id + 1)
+        pbar.set_postfix(acc=f"{running_acc:.3f}", auc=f"{running_auc:.3f}")
 
     return pd.concat(frames, ignore_index=True)
 
@@ -203,8 +217,12 @@ def permutation_null(
 # ── Plotting ─────────────────────────────────────────────────────────────
 
 
-def plot_auc_distribution_real(
-    df: pd.DataFrame, words: list[str], out_path: str
+def plot_metric_distribution_real(
+    df: pd.DataFrame,
+    words: list[str],
+    out_path: str,
+    metric: str,
+    metric_label: str,
 ) -> None:
     apply_plot_style()
     colors = get_categorical_colors(len(words))
@@ -212,10 +230,10 @@ def plot_auc_distribution_real(
 
     fig, ax = plt.subplots(figsize=(6.5, 3.5))
     bins = np.linspace(0.3, 1.0, 30)
-    ax.hist(df["auc"], bins=bins, color="#bbbbbb",
+    ax.hist(df[metric], bins=bins, color="#bbbbbb",
             edgecolor="white", linewidth=0.4)
     ax.axvline(0.5, color="black", linestyle="--", linewidth=1.0,
-               label="null AUC = 0.5")
+               label=f"null {metric_label} = 0.5")
 
     # Rug plot, jittered along y, coloured by word.
     rng = np.random.default_rng(0)
@@ -224,12 +242,14 @@ def plot_auc_distribution_real(
         if sub.empty:
             continue
         y = -1.5 - rng.uniform(0, 0.8, size=len(sub))
-        ax.scatter(sub["auc"], y, color=word_color[word], s=10,
+        ax.scatter(sub[metric], y, color=word_color[word], s=10,
                    alpha=0.85, label=word)
 
-    ax.set_xlabel("held-out AUC")
+    ax.set_xlabel(f"held-out {metric_label}")
     ax.set_ylabel("count (year-pairs)")
-    ax.set_title("Linear-probe AUC across words & consecutive year-pairs")
+    ax.set_title(
+        f"Linear-probe {metric_label} across words & consecutive year-pairs"
+    )
     ax.legend(loc="upper right")
     remove_extra_spines(ax)
     fig.tight_layout()
@@ -237,8 +257,12 @@ def plot_auc_distribution_real(
     plt.close(fig)
 
 
-def plot_auc_over_time_per_word(
-    df: pd.DataFrame, words: list[str], out_path: str
+def plot_metric_over_time_per_word(
+    df: pd.DataFrame,
+    words: list[str],
+    out_path: str,
+    metric: str,
+    metric_label: str,
 ) -> None:
     apply_plot_style()
     colors = get_categorical_colors(len(words))
@@ -252,22 +276,24 @@ def plot_auc_over_time_per_word(
             ax.set_title(word)
             continue
         midpoints = sub["year_a"] + 0.5
-        ax.plot(midpoints, sub["auc"], color=color, linewidth=1.4, alpha=0.9)
-        ax.scatter(midpoints, sub["auc"], color=color, s=14, zorder=3)
+        ax.plot(midpoints, sub[metric], color=color, linewidth=1.4, alpha=0.9)
+        ax.scatter(midpoints, sub[metric], color=color, s=14, zorder=3)
         ax.axhline(0.5, color="black", linestyle="--", linewidth=0.7)
         ax.set_title(word)
         ax.set_ylim(0.3, 1.02)
         ax.set_xlabel("year-pair midpoint")
-        ax.set_ylabel("AUC")
+        ax.set_ylabel(metric_label)
 
         # Annotate min(n_a, n_b) for each point in tiny text below the line.
         for _, row in sub.iterrows():
-            ax.text(row["year_a"] + 0.5, row["auc"] + 0.015,
+            ax.text(row["year_a"] + 0.5, row[metric] + 0.015,
                     str(int(row["n_per_class"])),
                     fontsize=6, ha="center", color="#555")
         remove_extra_spines(ax)
 
-    fig.suptitle("Per-word linear-probe AUC over consecutive year-pairs")
+    fig.suptitle(
+        f"Per-word linear-probe {metric_label} over consecutive year-pairs"
+    )
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -278,6 +304,8 @@ def plot_permutation_null(
     df_perm: pd.DataFrame,
     word: str,
     out_path: str,
+    metric: str,
+    metric_label: str,
 ) -> None:
     apply_plot_style()
     real = df_real[df_real["word"] == word].sort_values("year_a")
@@ -287,16 +315,16 @@ def plot_permutation_null(
     # Left: histogram comparison.
     ax = axes[0]
     bins = np.linspace(0.3, 1.0, 30)
-    ax.hist(df_perm["auc"], bins=bins, color="#bbbbbb",
+    ax.hist(df_perm[metric], bins=bins, color="#bbbbbb",
             edgecolor="white", linewidth=0.4, alpha=0.9,
             label=f"permuted (×{df_perm['perm_id'].nunique()})", density=True)
-    ax.hist(real["auc"], bins=bins, color="#d62728",
+    ax.hist(real[metric], bins=bins, color="#d62728",
             edgecolor="white", linewidth=0.4, alpha=0.7,
             label="real", density=True)
     ax.axvline(0.5, color="black", linestyle="--", linewidth=1.0)
-    ax.set_xlabel("held-out AUC")
+    ax.set_xlabel(f"held-out {metric_label}")
     ax.set_ylabel("density")
-    ax.set_title(f"{word}: permuted vs real AUC")
+    ax.set_title(f"{word}: permuted vs real {metric_label}")
     ax.legend(loc="upper right")
     remove_extra_spines(ax)
 
@@ -304,16 +332,16 @@ def plot_permutation_null(
     ax = axes[1]
     for perm_id, sub in df_perm.groupby("perm_id"):
         sub = sub.sort_values("year_a")
-        ax.plot(sub["year_a"] + 0.5, sub["auc"],
+        ax.plot(sub["year_a"] + 0.5, sub[metric],
                 color="#888888", linewidth=0.8, alpha=0.55)
-    ax.plot(real["year_a"] + 0.5, real["auc"],
+    ax.plot(real["year_a"] + 0.5, real[metric],
             color="#d62728", linewidth=1.8, label="real")
-    ax.scatter(real["year_a"] + 0.5, real["auc"],
+    ax.scatter(real["year_a"] + 0.5, real[metric],
                color="#d62728", s=20, zorder=3)
     ax.axhline(0.5, color="black", linestyle="--", linewidth=0.7)
     ax.set_xlabel("year-pair midpoint")
-    ax.set_ylabel("AUC")
-    ax.set_title(f"{word}: AUC trajectory (real vs permuted)")
+    ax.set_ylabel(metric_label)
+    ax.set_title(f"{word}: {metric_label} trajectory (real vs permuted)")
     ax.legend(loc="upper right")
     ax.set_ylim(0.3, 1.02)
     remove_extra_spines(ax)
@@ -330,7 +358,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start", type=int, default=1990)
     parser.add_argument("--end", type=int, default=2025)
-    parser.add_argument("--n-perms", type=int, default=10)
+    parser.add_argument("--n-perms", type=int, default=500)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -370,42 +398,67 @@ def main() -> None:
         )
         logger.info(
             f"  {word}: {len(df_w)} year-pairs, "
+            f"mean acc = {df_w['acc'].mean():.3f}, "
             f"mean AUC = {df_w['auc'].mean():.3f}"
         )
         real_frames.append(df_w)
     df_real = pd.concat(real_frames, ignore_index=True)
-    df_real.to_csv(os.path.join(csv_dir, "auc_real.csv"), index=False)
-    logger.info(f"Wrote auc_real.csv ({len(df_real)} rows)")
+    df_real.to_csv(os.path.join(csv_dir, "metrics_real.csv"), index=False)
+    logger.info(f"Wrote metrics_real.csv ({len(df_real)} rows)")
 
-    # Permutation null on PERM_WORD.
-    df_perm = pd.DataFrame()
-    if PERM_WORD in per_word:
-        logger.info(f"Permutation null: {PERM_WORD} ({args.n_perms} perms)")
+    # Permutation null on every target word.
+    perm_per_word: dict[str, pd.DataFrame] = {}
+    for word in TARGET_WORDS:
+        if word not in per_word:
+            continue
+        logger.info(f"Permutation null: {word} ({args.n_perms} perms)")
         df_perm = permutation_null(
-            PERM_WORD, per_word[PERM_WORD], years,
+            word, per_word[word], years,
             n_perms=args.n_perms, seed=args.seed,
         )
-        df_perm.to_csv(
-            os.path.join(csv_dir, "auc_perm_organization.csv"), index=False
-        )
+        out_csv = os.path.join(csv_dir, f"metrics_perm_{word}.csv")
+        df_perm.to_csv(out_csv, index=False)
         logger.info(
-            f"Wrote auc_perm_organization.csv ({len(df_perm)} rows); "
-            f"mean permuted AUC = {df_perm['auc'].mean():.3f}"
+            f"Wrote {os.path.basename(out_csv)} ({len(df_perm)} rows); "
+            f"mean permuted acc = {df_perm['acc'].mean():.3f}, "
+            f"AUC = {df_perm['auc'].mean():.3f}"
+        )
+        perm_per_word[word] = df_perm
+
+    # Figures — primary (precision/accuracy).
+    plot_metric_distribution_real(
+        df_real, TARGET_WORDS,
+        os.path.join(fig_dir, "acc_distribution_real.png"),
+        metric="acc", metric_label="accuracy",
+    )
+    plot_metric_over_time_per_word(
+        df_real, TARGET_WORDS,
+        os.path.join(fig_dir, "acc_over_time_per_word.png"),
+        metric="acc", metric_label="accuracy",
+    )
+    for word, df_perm in perm_per_word.items():
+        plot_permutation_null(
+            df_real, df_perm, word,
+            os.path.join(fig_dir, f"permutation_null_acc_{word}.png"),
+            metric="acc", metric_label="accuracy",
         )
 
-    # Figures.
-    plot_auc_distribution_real(
+    # Figures — secondary (AUC, kept for continuity with prior calibration).
+    plot_metric_distribution_real(
         df_real, TARGET_WORDS,
         os.path.join(fig_dir, "auc_distribution_real.png"),
+        metric="auc", metric_label="AUC",
     )
-    plot_auc_over_time_per_word(
+    plot_metric_over_time_per_word(
         df_real, TARGET_WORDS,
         os.path.join(fig_dir, "auc_over_time_per_word.png"),
+        metric="auc", metric_label="AUC",
     )
-    if not df_perm.empty:
+    for word, df_perm in perm_per_word.items():
         plot_permutation_null(
-            df_real, df_perm, PERM_WORD,
-            os.path.join(fig_dir, "permutation_null_organization.png"),
+            df_real, df_perm, word,
+            os.path.join(fig_dir, f"permutation_null_auc_{word}.png"),
+            metric="auc", metric_label="AUC",
         )
 
     logger.info(f"Figures written to {fig_dir}")
