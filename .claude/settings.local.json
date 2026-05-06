@@ -37,7 +37,21 @@
       "Bash(wc -l /Users/lmmi/legal_word_drift/data/processed/sentences/*.txt)",
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
-      "Bash(git reset *)"
+      "Bash(git reset *)",
+      "Bash(git -C /Users/lmmi/legal_drift/legal_word_drift worktree add /Users/lmmi/legal_drift/legal_word_drift-wt/c2st-null-variance -b wt/c2st-null-variance)",
+      "Bash(git -C /Users/lmmi/legal_drift/legal_word_drift worktree list)",
+      "Read(//Users/lmmi/legal_drift/legal_word_drift-wt/c2st-null-variance/**)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('scripts/bert/27_linear_probe_drift_calibration.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python --version)",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -c \"import sklearn, pandas, numpy, scipy; print\\('sklearn', sklearn.__version__\\)\")",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python scripts/bert/27_linear_probe_drift_calibration.py --n-perms 3)",
+      "Bash(/opt/anaconda3/envs/legal_word_drift/bin/python -c \"from src.utils.config import BERT_EMBEDDINGS_DIR; print\\(BERT_EMBEDDINGS_DIR\\)\")",
+      "Bash(ln -s /Users/lmmi/legal_drift/legal_word_drift/data/models models)",
+      "Bash(ln -s /Users/lmmi/legal_drift/legal_word_drift/data/raw raw)",
+      "Bash(ln -s /Users/lmmi/legal_drift/legal_word_drift/data/processed processed)",
+      "Bash(ln -s /Users/lmmi/legal_drift/legal_word_drift/data/data data)",
+      "Read(//Users/lmmi/legal_drift/legal_word_drift-wt/pca-removal/**)",
+      "Bash(mv scripts/bert/28_linear_probe_pca_removal.py scripts/bert/29_linear_probe_pca_removal.py)"
     ]
   }
 }
