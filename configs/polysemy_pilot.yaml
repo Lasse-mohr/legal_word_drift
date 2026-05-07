@@ -2,7 +2,7 @@ year: 2020
 window_start: 2018
 window_end: 2020
 max_occurrences_per_word: 1000
-min_occurrences_per_word: 50
+min_occurrences_per_word: 0
 seed: 42
 polysemous:
 - party
@@ -24,4 +24,19 @@ monosemantic:
 - defendant
 - tariff
 extras:
+- signs
+- joined
+- charter
+- fraud
+- security
+- citizen
+- petroleum
+- flying
+- pure
+- warrant
+- overseas
+- carbon
+- master
+- engines
+- federation
 frequency_sampled:

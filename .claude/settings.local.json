@@ -51,7 +51,9 @@
       "Bash(ln -s /Users/lmmi/legal_drift/legal_word_drift/data/processed processed)",
       "Bash(ln -s /Users/lmmi/legal_drift/legal_word_drift/data/data data)",
       "Read(//Users/lmmi/legal_drift/legal_word_drift-wt/pca-removal/**)",
-      "Bash(mv scripts/bert/28_linear_probe_pca_removal.py scripts/bert/29_linear_probe_pca_removal.py)"
+      "Bash(mv scripts/bert/28_linear_probe_pca_removal.py scripts/bert/29_linear_probe_pca_removal.py)",
+      "Bash(git worktree *)",
+      "Bash(git branch *)"
     ]
   }
 }
