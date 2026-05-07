@@ -772,7 +772,7 @@ def main() -> None:
         )
         return
 
-    categories = {c: list(cfg.get(c, [])) for c in CATEGORIES}
+    categories = {c: list(cfg.get(c) or []) for c in CATEGORIES}
     all_words = sorted({w for ws in categories.values() for w in ws})
     logger.info(
         f"Pilot words ({len(all_words)}): "
