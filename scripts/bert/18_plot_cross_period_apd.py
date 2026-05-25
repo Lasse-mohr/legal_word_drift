@@ -86,16 +86,33 @@ def main() -> None:
     )
     logger.info(f"Top-{args.top_k} by {args.rank_by}: {top_words[:10]} ...")
 
-    plot_cross_period_grid(
-        matrices, top_words,
-        save_path=os.path.join(out_dir, f"heatmap_grid_top{args.top_k}.png"),
-        ncols=args.ncols,
-    )
-    plot_cross_period_marginals_grid(
-        matrices, top_words,
-        save_path=os.path.join(out_dir, f"marginals_grid_top{args.top_k}.png"),
-        ncols=args.ncols,
-    )
+    # Cap at 100 cells (10x10) per figure; split into multiple figures if
+    # top_k exceeds that. Single-figure case keeps the original filename so
+    # downstream consumers are unaffected for k <= 100.
+    chunk_size = 100
+    chunks = [
+        top_words[i : i + chunk_size]
+        for i in range(0, len(top_words), chunk_size)
+    ]
+    multi = len(chunks) > 1
+
+    for idx, chunk in enumerate(chunks):
+        if multi:
+            start = idx * chunk_size + 1
+            end = start + len(chunk) - 1
+            suffix = f"_top{args.top_k}_part{idx + 1}of{len(chunks)}_ranks{start}-{end}"
+        else:
+            suffix = f"_top{args.top_k}"
+        plot_cross_period_grid(
+            matrices, chunk,
+            save_path=os.path.join(out_dir, f"heatmap_grid{suffix}.png"),
+            ncols=args.ncols,
+        )
+        plot_cross_period_marginals_grid(
+            matrices, chunk,
+            save_path=os.path.join(out_dir, f"marginals_grid{suffix}.png"),
+            ncols=args.ncols,
+        )
     plot_drift_excess_distribution(
         ranking_df,
         save_path=os.path.join(out_dir, "drift_excess_hist.png"),

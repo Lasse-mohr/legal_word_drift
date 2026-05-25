@@ -77,7 +77,9 @@ def get_named_cmap(name: str) -> mpl.colors.Colormap:
             f"Unknown palette {name!r}; "
             f"available: {sorted(SEQUENTIAL_PALETTES)}"
         )
-    return LinearSegmentedColormap.from_list(name, SEQUENTIAL_PALETTES[name])
+    cmap = LinearSegmentedColormap.from_list(name, SEQUENTIAL_PALETTES[name])
+    cmap.set_bad("#dddddd")
+    return cmap
 
 
 def get_heatmap_cmap() -> mpl.colors.Colormap:

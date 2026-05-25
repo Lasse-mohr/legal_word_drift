@@ -1,0 +1,179 @@
+# EuroVoc labels that show block structure in average-pairwise distance
+# heatmaps (per the 2026-05-12 research note). Grouped by qualitative
+# "clarity" of the block pattern. Used as candidate vocabulary for the
+# linear-probe per-label sweep (scripts/eurovoc_drift/06_linear_probe_per_label.py).
+#
+# Schema:
+#   <clarity_tier>:
+#     - label: <eurovoc preferred or alt label>
+#       domain: <eurovoc domain>
+#       notes: <free text, may be empty>
+#
+# Predefined subsets pick 5 labels for the calibration-scale run.
+
+very_clear:
+  - label: stress
+    domain: employment and working conditions
+    notes: probably conflates stress of people and material/environments
+
+clearly_visible:
+  - label: leadership
+    domain: business and competition
+    notes: ""
+  - label: organization
+    domain: business and competition
+    notes: ""
+  - label: accused
+    domain: law
+    notes: ""
+  - label: wire
+    domain: production, technology and research
+    notes: ""
+
+clear:
+  - label: mail
+    domain: education and communications
+    notes: notably seems to have 2 distinct transitions
+  - label: communications
+    domain: education and communications
+    notes: ""
+  - label: ice
+    domain: environment
+    notes: ""
+  - label: atlantic
+    domain: environment
+    notes: probably conflates environment and geo-political meaning
+  - label: Scotland
+    domain: geography
+    notes: only few years of coverage
+  - label: ukraine
+    domain: geography
+    notes: ""
+  - label: Africa
+    domain: geography
+    notes: ""
+  - label: reunification
+    domain: international relations
+    notes: ""
+  - label: inheritance
+    domain: law
+    notes: ""
+  - label: opposition
+    domain: politics
+    notes: ""
+  - label: orphan
+    domain: social questions
+    notes: ""
+
+semiclear:
+  - label: succession
+    domain: law
+    notes: ""
+
+muddy:
+  - label: harvest
+    domain: agriculture, forestry and fisheries
+    notes: ""
+  - label: orange
+    domain: agriculture, forestry and fisheries
+    notes: ""
+  - label: butter
+    domain: agriculture, forestry and fisheries
+    notes: ""
+  - label: beef
+    domain: agriculture, forestry and fisheries
+    notes: ""
+  - label: tobacco
+    domain: agriculture, forestry and fisheries
+    notes: ""
+  - label: wheat
+    domain: agriculture, forestry and fisheries
+    notes: ""
+  - label: distillation
+    domain: agriculture, forestry and fisheries
+    notes: ""
+  - label: cereals
+    domain: agriculture, forestry and fisheries
+    notes: ""
+  - label: cow
+    domain: agriculture, forestry and fisheries
+    notes: ""
+  - label: foundation
+    domain: business and competition
+    notes: ""
+  - label: branch
+    domain: business and competition
+    notes: ""
+  - label: agriculture
+    domain: economics
+    notes: ""
+  - label: web
+    domain: education and communications
+    notes: probably conflates internet and fishing net
+  - label: forum
+    domain: education and communications
+    notes: ""
+  - label: media
+    domain: education and communications
+    notes: ""
+  - label: translations
+    domain: education and communications
+    notes: ""
+  - label: plain
+    domain: environment
+    notes: probably conflates legal and environmental use
+  - label: borrowing
+    domain: finance
+    notes: ""
+  - label: carbon
+    domain: industry
+    notes: ""
+  - label: engine
+    domain: industry
+    notes: ""
+  - label: resolution
+    domain: international relations
+    notes: ""
+  - label: tube
+    domain: production, technology and research
+    notes: ""
+
+very_slight:
+  - label: composition
+    domain: business and competition
+    notes: ""
+  - label: bird
+    domain: environment
+    notes: ""
+  - label: notary
+    domain: law
+    notes: ""
+  - label: punishment
+    domain: law
+    notes: ""
+  - label: citizen
+    domain: politics
+    notes: very unclear
+  - label: innovation
+    domain: (unspecified)
+    notes: ""
+
+unspecified:
+  - label: iata
+    domain: (unspecified)
+    notes: International Air Transport Association
+
+# Predefined subsets. Each subset is a list of label strings; the script
+# resolves each back to its clarity/domain/notes via the tiers above.
+subsets:
+  clarity_spread:
+    description: >
+      One label per clarity tier (very_clear → very_slight), covering four
+      distinct EuroVoc domains. Used for the initial 5-word calibration of
+      the EuroVoc linear-probe sweep.
+    labels:
+      - stress
+      - ukraine
+      - accused
+      - composition
+      - bird

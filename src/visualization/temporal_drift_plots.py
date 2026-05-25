@@ -444,7 +444,7 @@ def plot_cross_period_marginals_grid(
         axes[row, col].set_visible(False)
 
     fig.tight_layout()
-    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    fig.savefig(save_path, dpi=450, bbox_inches="tight")
     logger.info(f"Saved {save_path}")
     return fig
 

@@ -32,16 +32,13 @@ import sys
 from collections import Counter, defaultdict
 from random import Random
 
-import diptest
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yaml
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
-from sklearn.metrics import silhouette_score
 from sklearn.mixture import BayesianGaussianMixture
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -53,6 +50,7 @@ from src.embeddings.bert_encoder import (
     load_model,
 )
 from src.embeddings.usage_collector import Usage, build_usage_index
+from src.metrics.polysemy import within_group_distance_stats
 from src.utils.config import (
     FIGURES_DIR,
     METRICS_DIR,
@@ -413,24 +411,6 @@ def bootstrap_k_estimate(
     return k_values
 
 
-def pairwise_cosine_distances(embeddings: np.ndarray) -> np.ndarray:
-    """Return upper-triangle vector of pairwise cosine distances."""
-    norms = np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-10
-    normed = embeddings / norms
-    sims = normed @ normed.T
-    iu = np.triu_indices(embeddings.shape[0], k=1)
-    return 1.0 - sims[iu]
-
-
-def cosine_distance_to_centroid(embeddings: np.ndarray) -> np.ndarray:
-    """Cosine distance from each embedding to the renormalized mean direction."""
-    norms = np.linalg.norm(embeddings, axis=1, keepdims=True) + 1e-10
-    normed = embeddings / norms
-    mean_dir = normed.mean(axis=0)
-    mean_dir = mean_dir / (np.linalg.norm(mean_dir) + 1e-10)
-    return 1.0 - normed @ mean_dir
-
-
 def compute_word_stats(
     embeddings: np.ndarray,
     seed: int,
@@ -441,56 +421,15 @@ def compute_word_stats(
     weight_threshold: float = 0.05,
     cov_type: str = "diag",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
-    """Compute pairwise + centroid distances, BGMM-bootstrap K, and summary stats.
+    """Distance distributions + summary stats, plus optional BGMM-K bootstrap.
 
-    If ``projected`` is given and ``n_bootstrap > 0``, runs the BGMM bootstrap on
-    the projected (PCA-reduced) embeddings and returns the K-distribution.
+    Wraps ``within_group_distance_stats`` (pairwise + centroid distances,
+    silhouette, dip tests) and adds the BGMM bootstrap on the projected
+    (PCA-reduced) embeddings when ``projected`` is given and
+    ``n_bootstrap > 0``.
     """
-    dists = pairwise_cosine_distances(embeddings)
-    centroid_dists = cosine_distance_to_centroid(embeddings)
+    dists, centroid_dists, stats = within_group_distance_stats(embeddings, seed=seed)
 
-    stats = {
-        "n_usages": int(embeddings.shape[0]),
-        "mean_dist": float(dists.mean()),
-        "median_dist": float(np.median(dists)),
-        "std_dist": float(dists.std()),
-        "mean_centroid_dist": float(centroid_dists.mean()),
-        "median_centroid_dist": float(np.median(centroid_dists)),
-        "std_centroid_dist": float(centroid_dists.std()),
-    }
-
-    # Silhouette at k=2 on the embeddings themselves.
-    if embeddings.shape[0] >= 10:
-        km = KMeans(n_clusters=2, n_init="auto", random_state=seed)
-        labels = km.fit_predict(embeddings)
-        if len(set(labels)) == 2:
-            stats["silhouette_k2"] = float(
-                silhouette_score(embeddings, labels, metric="cosine")
-            )
-        else:
-            stats["silhouette_k2"] = float("nan")
-    else:
-        stats["silhouette_k2"] = float("nan")
-
-    # Hartigan dip test on each distance distribution.
-    # diptest.diptest returns (dip_statistic, p_value).
-    if dists.size >= 4:
-        dip, pval = diptest.diptest(dists)
-        stats["dip"] = float(dip)
-        stats["dip_pvalue"] = float(pval)
-    else:
-        stats["dip"] = float("nan")
-        stats["dip_pvalue"] = float("nan")
-
-    if centroid_dists.size >= 4:
-        dip_c, pval_c = diptest.diptest(centroid_dists)
-        stats["centroid_dip"] = float(dip_c)
-        stats["centroid_dip_pvalue"] = float(pval_c)
-    else:
-        stats["centroid_dip"] = float("nan")
-        stats["centroid_dip_pvalue"] = float("nan")
-
-    # Bootstrap-based K estimation on projected embeddings.
     if projected is not None and n_bootstrap > 0 and projected.shape[0] >= 10:
         k_values = bootstrap_k_estimate(
             projected, n_bootstrap=n_bootstrap, k_max=k_max,

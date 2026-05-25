@@ -1,0 +1,302 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{hyperref}
+
+\title{Mean-centroid drift detection:\\
+null distribution and analytical calibration}
+\author{Legal Word Drift — internal note}
+\date{2026-05-13}
+
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\operatorname{Var}}
+\newcommand{\Cov}{\operatorname{Cov}}
+\newcommand{\tr}{\operatorname{tr}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\1}{\mathbf{1}}
+
+\begin{document}
+\maketitle
+
+\section{Setup}
+
+Let $P$ be a distribution on $\R^d$ with mean $\mu$ and covariance $\Sigma$.
+Under the null hypothesis $H_0$ (``no drift between the two groups''), all
+training and test samples are iid from $P$:
+\begin{itemize}
+  \item Training: $X_1,\dots,X_n$ in the $X$-class, $Y_1,\dots,Y_m$ in the
+        $Y$-class, all iid $\sim P$ and mutually independent.
+  \item Test: $X'_1,\dots,X'_{n'}$ and $Y'_1,\dots,Y'_{m'}$, iid $\sim P$,
+        independent of training.
+\end{itemize}
+Define
+\[
+  \hat\Delta \;=\; \bar X_{\mathrm{tr}} - \bar Y_{\mathrm{tr}},
+  \qquad
+  c \;=\; \tfrac{1}{2}\bigl(\bar X_{\mathrm{tr}} + \bar Y_{\mathrm{tr}}\bigr),
+\]
+and classify a test point $z \in \R^d$ as $X$-class iff the score
+\[
+  S(z) \;:=\; (z - c)\cdot\hat\Delta \;>\; 0.
+\]
+
+\section{Moments of \texorpdfstring{$\hat\Delta$}{Delta} under \texorpdfstring{$H_0$}{H0}}
+
+By linearity and independence of $\bar X_{\mathrm{tr}}$ and $\bar Y_{\mathrm{tr}}$,
+\[
+  \E[\hat\Delta] \;=\; \mu - \mu \;=\; 0,
+  \qquad
+  \Cov(\hat\Delta) \;=\; \frac{\Sigma}{n} + \frac{\Sigma}{m}
+  \;=\; \Bigl(\tfrac{1}{n} + \tfrac{1}{m}\Bigr)\Sigma.
+\]
+For the squared norm,
+\[
+  \E\|\hat\Delta\|^2
+  \;=\; \tr\!\bigl(\Cov(\hat\Delta)\bigr) + \|\E\hat\Delta\|^2
+  \;=\; \Bigl(\tfrac{1}{n} + \tfrac{1}{m}\Bigr)\tr(\Sigma).
+\]
+For isotropic $\Sigma = \sigma^2 I_d$ and balanced $n = m = N$ this gives
+$\E\|\hat\Delta\|^2 = 2\sigma^2 d / N$, so the chord between the two
+centroids has length $\|\hat\Delta\| \sim \sigma\sqrt{d/N}$ even under
+$H_0$. The centroid distance is not a calibrated test statistic without
+knowledge of (or an estimator for) $\Sigma$; see \cite{HallMarronNeeman2005}
+for the limiting geometry as $d \to \infty$ with $n$ fixed.
+
+\section{Expected accuracy under \texorpdfstring{$H_0$}{H0}}
+
+\begin{proposition}\label{prop:half}
+Assume $\Pr_{X' \sim P}(S(X') = 0) = 0$ (e.g.\ $P$ has a density). Under
+$H_0$ and \emph{no other assumptions} on $P$, $n$, $m$, $n'$, $m'$,
+\[
+  \E[\,\mathrm{accuracy} \mid H_0\,] \;=\; \tfrac{1}{2}.
+\]
+\end{proposition}
+
+\begin{proof}
+Consider the relabeling that swaps every $X$-instance with a $Y$-instance,
+applied to the training data only. Call this map $\pi$. Under $\pi$,
+\[
+  \bar X_{\mathrm{tr}} \longleftrightarrow \bar Y_{\mathrm{tr}},
+  \qquad
+  \hat\Delta \longmapsto -\hat\Delta,
+  \qquad
+  c \longmapsto c,
+\]
+so for any test point $z$ the score flips sign: $S(z) \mapsto -S(z)$.
+Under $H_0$ the joint distribution of $(X_{\mathrm{tr}}, Y_{\mathrm{tr}})$
+is invariant under $\pi$, because both training groups are iid from the
+same $P$. Hence the law of $S(z)$ conditional on $H_0$ equals the law of
+$-S(z)$: $S(z)$ is symmetric around $0$ in distribution. With the
+no-atom-at-zero assumption,
+\[
+  \Pr(S(z) > 0) \;=\; \Pr(S(z) < 0) \;=\; \tfrac{1}{2}.
+\]
+Since this holds for every test point regardless of its true class,
+$\E[\mathrm{accuracy}] = 1/2$.
+\end{proof}
+
+This uses no Gaussianity, no symmetry of $P$, no balance $n = m$. It is
+the same exchangeability machinery underlying permutation tests
+\cite{LehmannRomano2005}.
+
+\section{Variance of accuracy under \texorpdfstring{$H_0$}{H0}}\label{sec:acc-var}
+
+Write $T = (X_{\mathrm{tr}}, Y_{\mathrm{tr}})$ and define the
+conditional accuracy on a single side,
+\[
+  p \;:=\; \Pr\!\bigl(S(X') > 0 \,\big|\, T\bigr),
+  \qquad X' \sim P, \ X' \perp T.
+\]
+By Proposition~\ref{prop:half}, $\E[p] = 1/2$. Conditional on $T$, the
+$N_{\mathrm{te}} = n' + m'$ test indicators are independent
+Bernoulli$(p)$ (or $1-p$, symmetric on the other side), and
+\[
+  \Var(\mathrm{accuracy})
+  \;=\; \E\!\left[\frac{p(1-p)}{N_{\mathrm{te}}}\right]
+       + \Var(p)
+  \;=\; \frac{1}{4 N_{\mathrm{te}}}
+       + \Var(p)\!\left(1 - \tfrac{1}{N_{\mathrm{te}}}\right).
+\]
+The first term is the irreducible finite-test binomial noise; the second
+is the spread of conditional accuracy across realisations of the
+training set. So
+\[
+  \Var(\mathrm{accuracy} \mid H_0) \;\ge\; \frac{1}{4 N_{\mathrm{te}}},
+\]
+with equality only if $p \equiv 1/2$ almost surely. In high dimension
+($d \gg n,m$) the inflation $\Var(p)$ is non-negligible; see
+\cite{BickelLevina2004} for the high-dimensional regime in which fitted
+linear discriminants degenerate and centroid rules dominate.
+
+\section{AUROC: a fully analytical null}
+
+Replace the midpoint threshold by the rank statistic. Let
+\[
+  U \;=\; \sum_{i=1}^{n'}\sum_{j=1}^{m'} \1\!\bigl\{S(X'_i) > S(Y'_j)\bigr\},
+  \qquad
+  \widehat{\mathrm{AUROC}} \;=\; \frac{U}{n'\,m'}.
+\]
+
+\begin{proposition}
+Under $H_0$ (with $P$ continuous), the conditional law of $U$ given $T$
+is the standard Mann--Whitney null. In particular
+\[
+  \E\!\left[\widehat{\mathrm{AUROC}} \,\big|\, T, H_0\right] = \tfrac{1}{2},
+  \qquad
+  \Var\!\left(\widehat{\mathrm{AUROC}} \,\big|\, T, H_0\right)
+   = \frac{n' + m' + 1}{12\,n'\,m'},
+\]
+both \emph{independent of $T$}.
+\end{proposition}
+
+\begin{proof}
+Condition on $T$ (hence on $\hat\Delta$ and $c$). The scores
+$\{S(X'_i)\}_{i=1}^{n'}$ and $\{S(Y'_j)\}_{j=1}^{m'}$ are then iid
+samples from the \emph{same} univariate distribution: the pushforward of
+$P$ through $z \mapsto S(z)$. (Under $H_0$ both test groups have source
+distribution $P$, and $S$ is a fixed function once $T$ is fixed.) The
+combined sample of $n' + m'$ scores is therefore exchangeable, and the
+rank of any subset of size $n'$ has the Mann--Whitney null distribution
+\cite{HollanderWolfeChicken2014}, whose mean and variance are as stated
+and depend only on $(n', m')$.
+\end{proof}
+
+For balanced $n' = m' = N$, $\Var(\widehat{\mathrm{AUROC}} \mid H_0)
+= (2N+1)/(12 N^2) \approx 1/(6N)$. There is no
+``between-classifier'' inflation, because under $H_0$ the two test
+groups have identical projected distributions regardless of which
+direction $\hat\Delta$ the training data happens to pick out.
+
+\subsection{Derivation of the Mann--Whitney null variance}
+
+We derive $\Var(U \mid T, H_0) = n'\,m'\,(n'+m'+1)/12$ from first
+principles. Condition throughout on $T$; under $H_0$ the test scores
+$\{S(X'_i)\}_{i \le n'}$ and $\{S(Y'_j)\}_{j \le m'}$ are then iid from a
+common continuous distribution $F$. Define
+\[
+  W_{ij} \;=\; \1\!\bigl\{S(X'_i) > S(Y'_j)\bigr\},
+  \qquad
+  U \;=\; \sum_{i=1}^{n'} \sum_{j=1}^{m'} W_{ij}.
+\]
+Continuity of $F$ gives $\Pr(S(X'_i) = S(Y'_j)) = 0$, so
+$\E[W_{ij}] = 1/2$ and $\Var(W_{ij}) = 1/4$.
+
+Expand
+\[
+  \Var(U) \;=\; \sum_{i,j} \Var(W_{ij})
+                  \;+\; \sum_{(i,j) \ne (k,\ell)} \Cov(W_{ij}, W_{k\ell}).
+\]
+The diagonal contributes $n'\,m' \cdot \tfrac{1}{4}$. The off-diagonal
+covariances fall into three cases.
+
+\paragraph{Case A ($i = k$, $j \ne \ell$).}
+With $A = S(X'_i)$, $B = S(Y'_j)$, $C = S(Y'_\ell)$ iid $\sim F$,
+\[
+  \E[W_{ij} W_{i\ell}] \;=\; \Pr(A > B,\ A > C)
+   \;=\; \Pr\!\bigl(A = \max\{A,B,C\}\bigr) \;=\; \tfrac{1}{3},
+\]
+by exchangeability of three iid continuous random variables. Hence
+$\Cov(W_{ij}, W_{i\ell}) = 1/3 - 1/4 = 1/12$. There are
+$n' \cdot m'(m' - 1)$ such ordered pairs.
+
+\paragraph{Case B ($i \ne k$, $j = \ell$).}
+By the symmetric argument with $A = S(X'_i)$, $B = S(X'_k)$,
+$C = S(Y'_j)$:
+\[
+  \E[W_{ij} W_{kj}] \;=\; \Pr(A > C,\ B > C)
+   \;=\; \Pr\!\bigl(C = \min\{A,B,C\}\bigr) \;=\; \tfrac{1}{3},
+\]
+so again $\Cov = 1/12$, with $m' \cdot n'(n' - 1)$ ordered pairs.
+
+\paragraph{Case C ($i \ne k$, $j \ne \ell$).}
+Then $W_{ij}$ and $W_{k\ell}$ depend on four disjoint iid scores, so they
+are independent and the covariance is $0$.
+
+\paragraph{Sum.}
+\begin{align*}
+  \Var(U)
+  &= n'\,m' \cdot \tfrac{1}{4}
+   + n'\,m'(m' - 1) \cdot \tfrac{1}{12}
+   + n'\,m'(n' - 1) \cdot \tfrac{1}{12} \\
+  &= \tfrac{n'\,m'}{12}\bigl[3 + (m' - 1) + (n' - 1)\bigr]
+   \;=\; \frac{n'\,m'\,(n' + m' + 1)}{12}.
+\end{align*}
+Dividing by $(n'\,m')^2$ gives
+\[
+  \Var\!\bigl(\widehat{\mathrm{AUROC}} \,\big|\, T, H_0\bigr)
+   \;=\; \frac{n' + m' + 1}{12\,n'\,m'}.
+\]
+None of the steps used the form of $F$ beyond continuity, so the result
+is independent of $T$ (as claimed) and the law of total variance
+collapses: $\Var(\widehat{\mathrm{AUROC}} \mid H_0)$ equals the same
+quantity unconditionally.
+
+\paragraph{Normal approximation.}
+For moderate $n', m'$ a CLT for two-sample $U$-statistics gives
+$\widehat{\mathrm{AUROC}} \mid H_0 \approx
+\mathcal{N}\!\bigl(\tfrac{1}{2},\,(n'+m'+1)/(12 n' m')\bigr)$, so a
+one-sided $z$-test rejects $H_0$ at level $\alpha$ when
+\[
+  \widehat{\mathrm{AUROC}} \;>\; \tfrac{1}{2}
+   + z_{1-\alpha}\sqrt{\frac{n'+m'+1}{12\,n'\,m'}}.
+\]
+For $n' = m' = 50$ this critical value at $\alpha = 0.05$ is
+$0.5 + 1.645 \cdot \sqrt{101/30000} \approx 0.595$. For small samples
+use the exact Mann--Whitney distribution \cite{HollanderWolfeChicken2014}.
+
+\section{Why fitted logistic regression breaks the argument}
+
+The label-swap proof of Proposition~\ref{prop:half} relies on the
+direction $\hat\Delta$ being a function only of the two class means.
+For a fitted classifier (logistic regression, linear SVM) the trained
+direction depends on individual training points and is optimised to
+separate them; under $H_0$ it locks onto spurious finite-sample
+directions whose generalisation error is not $1/2$ in high dimension
+\cite{BickelLevina2004}. Consequently both $\E[\mathrm{accuracy}]$ and
+$\E[\widehat{\mathrm{AUROC}}]$ exceed $1/2$ under $H_0$, and an
+analytical null no longer applies --- one needs permutation calibration.
+
+\section{Practical recipe}
+
+For each year-pair $(t, t+1)$ in the drift pipeline:
+\begin{enumerate}
+  \item Split usages of each year into train / test (balanced if possible).
+  \item Compute $\hat\Delta = \bar X_{t+1,\mathrm{tr}} - \bar X_{t,\mathrm{tr}}$.
+  \item Project all test embeddings onto $\hat\Delta$ and compute
+        $\widehat{\mathrm{AUROC}}$.
+  \item Compare to the Mann--Whitney null:
+        $z = (\widehat{\mathrm{AUROC}} - 1/2) \cdot
+              \sqrt{12\,n'\,m'/(n'+m'+1)}$.
+  \item Optionally report $\|\hat\Delta\|$ as a magnitude side-quantity,
+        but calibrate it via permutation (or against $\tr(\Sigma)$
+        estimated from the pooled sample), not analytically.
+\end{enumerate}
+
+\begin{thebibliography}{9}
+
+\bibitem{HallMarronNeeman2005}
+P.~Hall, J.~S.~Marron, A.~Neeman.
+\newblock Geometric representation of high-dimension, low-sample-size data.
+\newblock \emph{Journal of the Royal Statistical Society, Series B},
+67(3):427--444, 2005.
+
+\bibitem{BickelLevina2004}
+P.~J.~Bickel, E.~Levina.
+\newblock Some theory for Fisher's linear discriminant function,
+``naive Bayes'', and some alternatives when there are many more
+variables than observations.
+\newblock \emph{Bernoulli}, 10(6):989--1010, 2004.
+
+\bibitem{LehmannRomano2005}
+E.~L.~Lehmann, J.~P.~Romano.
+\newblock \emph{Testing Statistical Hypotheses}, 3rd ed.
+\newblock Springer, 2005. Chapter~15 (Permutation and Rank Tests).
+
+\bibitem{HollanderWolfeChicken2014}
+M.~Hollander, D.~A.~Wolfe, E.~Chicken.
+\newblock \emph{Nonparametric Statistical Methods}, 3rd ed.
+\newblock Wiley, 2014. Chapter~4 (Mann--Whitney--Wilcoxon).
+
+\end{thebibliography}
+
+\end{document}
