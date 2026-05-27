@@ -20,6 +20,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from src.embeddings.bert_encoder import resolve_model
 from src.metrics.temporal_drift import compute_cross_period_table
 from src.paths import PATHS
 from src.utils.config import setup_logging
@@ -27,6 +28,12 @@ from src.utils.config import setup_logging
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compute cross-period APD for EuroVoc labels")
+    parser.add_argument("--unit", choices=["year", "judgment"], default="year",
+                        help="Routes input embeddings and output paths through "
+                             "the {unit}/ subdir; logic is identical for both.")
+    parser.add_argument("--model", type=str, default="eurlex",
+                        help="Encoder (friendly name). 'eurlex' reads/writes the "
+                             "legacy paths; a control model uses models/<name>/.")
     parser.add_argument("--start", type=int, default=1990)
     parser.add_argument("--end", type=int, default=2025)
     parser.add_argument("--min-usages", type=int, default=10)
@@ -35,13 +42,15 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
-    setup_logging("eurovoc_drift_04_compute_heatmaps")
+    setup_logging(f"eurovoc_drift_04_compute_heatmaps_{args.unit}")
     logger = logging.getLogger(__name__)
+    _, slug = resolve_model(args.model)
+    logger.info(f"model={args.model} slug={slug}")
 
     years = range(args.start, args.end + 1)
 
     matrices, ranking_df = compute_cross_period_table(
-        str(PATHS.eurovoc_drift_embeddings),
+        str(PATHS.eurovoc_drift_embeddings_for(args.unit, slug)),
         years,
         words=None,
         min_usages=args.min_usages,
@@ -55,7 +64,7 @@ def main() -> None:
         return
 
     # Join with selected_labels metadata to attach domain / microthesaurus.
-    selected = pd.read_parquet(PATHS.eurovoc_drift_selected_labels)
+    selected = pd.read_parquet(PATHS.eurovoc_drift_selected_labels_for(args.unit))
     # Labels were lowercased during indexing; left-join is on the lowercased key.
     selected = selected.assign(label=selected["label"].str.lower())
     # A label string may map to multiple concepts (rare alt-label collisions);
@@ -72,17 +81,21 @@ def main() -> None:
         left_on="word", right_on="label", how="left"
     ).drop(columns=["label"])
 
-    PATHS.metrics.mkdir(parents=True, exist_ok=True)
-    ranked.to_parquet(PATHS.eurovoc_drift_ranking, index=False)
-    logger.info(f"Saved ranking ({len(ranked)} labels) → {PATHS.eurovoc_drift_ranking}")
+    # Year mode keeps the legacy unsuffixed paths so script 05 still works
+    # off them; judgment mode and control models get dedicated locations.
+    ranking_path = PATHS.eurovoc_drift_ranking_for(args.unit, slug)
+    apd_path = PATHS.eurovoc_drift_apd_npz_for(args.unit, slug)
+    ranking_path.parent.mkdir(parents=True, exist_ok=True)
+    apd_path.parent.mkdir(parents=True, exist_ok=True)
+    ranked.to_parquet(ranking_path, index=False)
+    logger.info(f"Saved ranking ({len(ranked)} labels) → {ranking_path}")
 
     arrays: dict[str, np.ndarray] = {}
     for label, info in matrices.items():
         arrays[f"w::{label}"] = info["matrix"].astype(np.float32)
         arrays[f"y::{label}"] = np.asarray(info["years"], dtype=np.int32)
-    PATHS.eurovoc_drift_apd_npz.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(PATHS.eurovoc_drift_apd_npz, **arrays)
-    logger.info(f"Saved {len(matrices)} matrices → {PATHS.eurovoc_drift_apd_npz}")
+    np.savez_compressed(apd_path, **arrays)
+    logger.info(f"Saved {len(matrices)} matrices → {apd_path}")
 
     logger.info("\nTop 20 by drift_excess:")
     for _, row in ranked.head(20).iterrows():

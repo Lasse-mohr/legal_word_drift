@@ -19,6 +19,33 @@ FALLBACK_MODEL = "nlpaueb/legal-bert-base-uncased"
 DEFAULT_LAYERS = (8, 9, 10)
 MAX_LENGTH = 512
 
+# Friendly model names → HuggingFace ids. ``eurlex`` is the default encoder
+# whose outputs live in the legacy (un-namespaced) directories; control models
+# get their own ``models/<slug>/`` output subtree (see ``resolve_model``).
+MODEL_REGISTRY: dict[str, str] = {
+    "eurlex": "nlpaueb/bert-base-uncased-eurlex",
+    # Same weights as ``eurlex`` but namespaced under models/eurlex-rerun/ so a
+    # paragraph-matched baseline can be regenerated on the current usage index
+    # without clobbering the original 2026-05-11 artifacts.
+    "eurlex-rerun": "nlpaueb/bert-base-uncased-eurlex",
+    "bert-base-uncased": "bert-base-uncased",
+}
+
+
+def resolve_model(name: str) -> tuple[str, str | None]:
+    """Map a friendly model name to ``(hf_id, path_slug)``.
+
+    ``path_slug`` is ``None`` for the default ``eurlex`` encoder so existing
+    legacy output paths are reused unchanged; for any other model it is the
+    friendly name, used to namespace outputs under ``models/<slug>/``.
+    """
+    if name not in MODEL_REGISTRY:
+        raise ValueError(
+            f"unknown model {name!r}; known: {sorted(MODEL_REGISTRY)}"
+        )
+    slug = None if name == "eurlex" else name
+    return MODEL_REGISTRY[name], slug
+
 
 @dataclass
 class EncodedParagraph:

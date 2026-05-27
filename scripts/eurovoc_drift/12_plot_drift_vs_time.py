@@ -34,6 +34,7 @@ import logging
 import os
 import sys
 from collections import Counter
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -41,6 +42,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from src.embeddings.bert_encoder import resolve_model
 from src.metrics.temporal_drift import (
     _cosine_distance,
     compute_centroids,
@@ -123,9 +125,15 @@ def build_drift_table(
     return pd.DataFrame(rows)
 
 
-def load_usage_counts(years: range) -> pd.DataFrame:
+def load_usage_counts(years: range, unit: str) -> pd.DataFrame:
     """(word, year, count) from the usage index, cached to parquet."""
-    cache = PATHS.eurovoc_drift_usage_counts
+    base_cache = PATHS.eurovoc_drift_usage_counts
+    cache = (
+        base_cache if unit == "year"
+        else base_cache.with_name(
+            f"{base_cache.stem}_{unit}{base_cache.suffix}"
+        )
+    )
     if cache.exists():
         LOGGER.info(f"Loading cached usage counts from {cache}")
         return pd.read_parquet(cache)
@@ -134,7 +142,7 @@ def load_usage_counts(years: range) -> pd.DataFrame:
     cache.parent.mkdir(parents=True, exist_ok=True)
     rows: list[dict] = []
     for year in years:
-        path = PATHS.eurovoc_drift_usage_index_year(year)
+        path = PATHS.eurovoc_drift_usage_index_year_for(unit, year)
         if not path.exists():
             LOGGER.warning(f"Missing usage index for {year}")
             continue
@@ -405,6 +413,11 @@ def plot_counts_by_domain(df: pd.DataFrame, out_dir) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Plot drift vs time with year-shuffle null")
+    parser.add_argument("--unit", choices=["year", "judgment"], default="year",
+                        help="Routes embeddings/selection/output through {unit}/.")
+    parser.add_argument("--model", type=str, default="eurlex",
+                        help="Encoder (friendly name). 'eurlex' reads/writes the "
+                             "legacy paths; a control model uses models/<name>/.")
     parser.add_argument("--start", type=int, default=1990)
     parser.add_argument("--end", type=int, default=2025)
     parser.add_argument("--min-usages", type=int, default=10)
@@ -412,26 +425,28 @@ def main() -> None:
     parser.add_argument("--out-dir", type=str, default=None)
     args = parser.parse_args()
 
-    setup_logging("eurovoc_drift_12_plot_drift_vs_time")
+    setup_logging(f"eurovoc_drift_12_plot_drift_vs_time_{args.unit}")
     apply_plot_style()
+    _, slug = resolve_model(args.model)
+    LOGGER.info(f"model={args.model} slug={slug}")
 
-    out_dir = (
-        PATHS.eurovoc_drift_figures_drift_vs_time if args.out_dir is None
-        else type(PATHS.eurovoc_drift_figures_drift_vs_time)(args.out_dir)
-    )
+    if args.out_dir is not None:
+        out_dir = Path(args.out_dir)
+    else:
+        out_dir = PATHS.eurovoc_drift_figures_drift_vs_time_for(args.unit, slug)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     years = range(args.start, args.end + 1)
     rng = np.random.default_rng(args.seed)
 
     # Label → domain map
-    selected = pd.read_parquet(PATHS.eurovoc_drift_selected_labels)
+    selected = pd.read_parquet(PATHS.eurovoc_drift_selected_labels_for(args.unit))
     selected["label"] = selected["label"].str.lower()
     domain_by_word = dict(zip(selected["label"], selected["domain_name"].fillna("(unassigned)")))
 
     LOGGER.info("Loading per-year embeddings…")
     embeddings = load_per_year_embeddings(
-        str(PATHS.eurovoc_drift_embeddings),
+        str(PATHS.eurovoc_drift_embeddings_for(args.unit, slug)),
         years,
         words=None,
         min_usages=args.min_usages,
@@ -453,7 +468,7 @@ def main() -> None:
     plot_by_domain_drift(drift, "euclidean", out_dir)
 
     LOGGER.info("Building case-count table…")
-    counts = load_usage_counts(years)
+    counts = load_usage_counts(years, args.unit)
     pairs = build_count_pairs(counts, domain_by_word)
     LOGGER.info(f"Count pairs: {len(pairs)}")
 

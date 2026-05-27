@@ -17,6 +17,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
+from src.embeddings.bert_encoder import resolve_model
 from src.paths import PATHS
 from src.utils.config import setup_logging
 from src.visualization.temporal_drift_plots import (
@@ -51,16 +52,21 @@ def main() -> None:
         "--rank-by", type=str, default="drift_excess",
         choices=["drift_excess", "drift_ratio", "max_off_diag"],
     )
+    parser.add_argument("--model", type=str, default="eurlex",
+                        help="Encoder (friendly name). 'eurlex' reads/writes the "
+                             "legacy paths; a control model uses models/<name>/.")
     args = parser.parse_args()
 
     setup_logging("eurovoc_drift_05_plot_per_domain")
     logger = logging.getLogger(__name__)
+    _, slug = resolve_model(args.model)
+    logger.info(f"model={args.model} slug={slug}")
 
-    ranking_df = pd.read_parquet(PATHS.eurovoc_drift_ranking)
-    matrices = load_matrices(str(PATHS.eurovoc_drift_apd_npz))
+    ranking_df = pd.read_parquet(PATHS.eurovoc_drift_ranking_for("year", slug))
+    matrices = load_matrices(str(PATHS.eurovoc_drift_apd_npz_for("year", slug)))
     logger.info(f"Loaded {len(ranking_df)} ranked labels, {len(matrices)} matrices")
 
-    out_root = PATHS.eurovoc_drift_figures
+    out_root = PATHS.eurovoc_drift_figures_for(slug)
     out_root.mkdir(parents=True, exist_ok=True)
 
     domains = sorted(ranking_df["domain_name"].dropna().unique().tolist())

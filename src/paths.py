@@ -61,11 +61,15 @@ class Paths:
     eurovoc_drift_usage_index: Path = (
         _PROJECT_ROOT / "data" / "models" / "eurovoc_drift" / "usage_index" / "year"
     )
+    # Legacy aliases — now resolve to the year/ subdir of unit-routed layouts.
     eurovoc_drift_sampled: Path = (
-        _PROJECT_ROOT / "data" / "models" / "eurovoc_drift" / "sampled_usages"
+        _PROJECT_ROOT / "data" / "models" / "eurovoc_drift" / "sampled_usages" / "year"
     )
     eurovoc_drift_embeddings: Path = (
-        _PROJECT_ROOT / "data" / "models" / "eurovoc_drift" / "embeddings"
+        _PROJECT_ROOT / "data" / "models" / "eurovoc_drift" / "embeddings" / "year"
+    )
+    eurovoc_drift_embeddings_index: Path = (
+        _PROJECT_ROOT / "data" / "models" / "eurovoc_drift" / "embeddings_index" / "year"
     )
     eurovoc_drift_apd_npz: Path = (
         _PROJECT_ROOT / "data" / "models" / "eurovoc_drift" / "cross_period_apd.npz"
@@ -137,6 +141,71 @@ class Paths:
 
     def eurovoc_drift_embeddings_year(self, year: int) -> Path:
         return self.eurovoc_drift_embeddings / f"{year}.npz"
+
+    # ── unit-routed helpers for year/judgment granularity ─────────────────
+
+    @staticmethod
+    def _check_unit(unit: str) -> None:
+        if unit not in ("year", "judgment"):
+            raise ValueError(f"unit must be 'year' or 'judgment', got {unit!r}")
+
+    def _eurovoc_drift_root(self, model: str | None) -> Path:
+        """eurovoc_drift root, optionally namespaced under ``models/<slug>/``.
+
+        ``model=None`` returns the legacy root so the default (eurlex) encoder's
+        outputs and the judgment-unit work stay byte-for-byte where they are.
+        """
+        return self.eurovoc_drift if not model else self.eurovoc_drift / "models" / model
+
+    def eurovoc_drift_sampled_for(self, unit: str, model: str | None = None) -> Path:
+        self._check_unit(unit)
+        return self._eurovoc_drift_root(model) / "sampled_usages" / unit
+
+    def eurovoc_drift_embeddings_for(self, unit: str, model: str | None = None) -> Path:
+        self._check_unit(unit)
+        return self._eurovoc_drift_root(model) / "embeddings" / unit
+
+    def eurovoc_drift_embeddings_index_for(self, unit: str, model: str | None = None) -> Path:
+        self._check_unit(unit)
+        return self._eurovoc_drift_root(model) / "embeddings_index" / unit
+
+    def eurovoc_drift_sampled_year_for(self, unit: str, year: int, model: str | None = None) -> Path:
+        return self.eurovoc_drift_sampled_for(unit, model) / f"{year}.jsonl"
+
+    def eurovoc_drift_embeddings_year_for(self, unit: str, year: int, model: str | None = None) -> Path:
+        return self.eurovoc_drift_embeddings_for(unit, model) / f"{year}.npz"
+
+    def eurovoc_drift_embeddings_index_year_for(self, unit: str, year: int, model: str | None = None) -> Path:
+        return self.eurovoc_drift_embeddings_index_for(unit, model) / f"{year}.jsonl"
+
+    # ── model-aware locations for the heatmap (04/05) and drift-vs-time (12) ──
+    # outputs that older code built inline. ``model=None`` reproduces the legacy
+    # year-mode paths exactly.
+
+    def eurovoc_drift_apd_npz_for(self, unit: str, model: str | None = None) -> Path:
+        self._check_unit(unit)
+        root = self._eurovoc_drift_root(model)
+        return root / "cross_period_apd.npz" if unit == "year" else root / unit / "cross_period_apd.npz"
+
+    def eurovoc_drift_ranking_for(self, unit: str, model: str | None = None) -> Path:
+        self._check_unit(unit)
+        base = self.eurovoc_drift_ranking
+        if model:
+            base = base.with_name(f"{base.stem}_{model}{base.suffix}")
+        if unit == "year":
+            return base
+        return base.with_name(f"{base.stem}_{unit}{base.suffix}")
+
+    def eurovoc_drift_figures_for(self, model: str | None = None) -> Path:
+        """Per-domain heatmap figure root (script 05)."""
+        return self.eurovoc_drift_figures if not model else self.eurovoc_drift_figures / "models" / model
+
+    def eurovoc_drift_figures_drift_vs_time_for(self, unit: str, model: str | None = None) -> Path:
+        self._check_unit(unit)
+        base = self.eurovoc_drift_figures_drift_vs_time
+        if model:
+            base = base / "models" / model
+        return base if unit == "year" else base / unit
 
 
 PATHS = Paths()
